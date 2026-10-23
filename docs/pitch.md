@@ -8,9 +8,9 @@ Every tool is an extension: your app's pods and volumes, a quick HTTP call, imag
 
 Watch it live. We ask the agent to fix a broken service. It triages and finds a deployment issue. It tries to restart a pod it was never granted, and the shell stops it. It tries to call a host it never declared, and the shell blocks that too. It tests its fix in the sandbox, a person approves, the check passes, and the proof is on screen. That took 60 seconds, and nothing touched production on trust alone.
 
-It's sandboxed by the shell, not by the prompt, and it works with any model provider.
+It's sandboxed by the shell, not by the prompt, and it works with any model provider. Extensions run out of process, and the kernel enforces each manifest.
 
-One terminal for developers and their agents: the same tools, the same rules, and proof on every change. Any team can write an extension on Monday.
+One terminal for developers and their agents: the same tools, the same rules, and proof on every change. Any team can write an extension on Monday, in the language they already use.
 
 ## Award fit
 
@@ -20,7 +20,7 @@ Award names are category labels only.
 |---|---|
 | Magic Wand (time-saver, manual task automation) | Triage plus a gated fix. kubectl, docker, an HTTP client, a log viewer, and an image builder in one shell. |
 | Elixir of Life (morale, well-being, culture) | Engineers stop babysitting agents and stop dreading the "is it us or the deploy?" page. Teams can try new agents safely. |
-| Sorcerer's Apprentice (cross-functional collaboration) | Any team (platform, QA, security, support) ships an extension. Their tools and their rules travel together. |
+| Sorcerer's Apprentice (cross-functional collaboration) | Any team (platform, QA, security, support) ships an extension in any language. Their tools and their rules travel together. |
 | Banishment (tool or process removed) | Removes tab sprawl, copy-pasted kubectl commands, and "trust me, the agent said it's fixed." |
 
 ## Notes
