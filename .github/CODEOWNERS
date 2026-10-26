@@ -1,0 +1,15 @@
+# Keep sensitive boundaries visible to both humans. Ruleset enforcement is separate.
+/.github/ @AstralDrift @crooruhe
+/scripts/ @AstralDrift @crooruhe
+/.githooks/ @AstralDrift @crooruhe
+/Cargo.toml @AstralDrift @crooruhe
+/Cargo.lock @AstralDrift @crooruhe
+/rust-toolchain.toml @AstralDrift @crooruhe
+/AGENTS.md @AstralDrift @crooruhe
+/REVIEW.md @AstralDrift @crooruhe
+/crates/hearth-core/ @AstralDrift @crooruhe
+/crates/hearth-policy/ @AstralDrift @crooruhe
+/crates/hearth-sandbox/ @AstralDrift @crooruhe
+/crates/hearth-broker/ @AstralDrift @crooruhe
+/fixtures/clusters.toml @AstralDrift @crooruhe
+**/hearth-extension.toml @AstralDrift @crooruhe

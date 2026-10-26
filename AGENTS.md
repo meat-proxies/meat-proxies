@@ -12,11 +12,11 @@ Hearth is one terminal where developers and agents use the same extension tools 
 
 ## Repository state and stack
 
-As of 2026-10-26, the checkout contains documentation and `.gitignore`; there is no Cargo workspace, application, test suite, or CI configuration yet. Do not claim planned paths or commands already work. Update this section when the skeleton lands.
+As of 2026-10-26, the checkout has a Rust workspace with a help/version executable, an empty core crate, CLI smoke tests, and local/CI checks. TUI, extensions, policy, sandbox, broker, and demo behavior are not implemented. Do not claim the skeleton enforces runtime boundaries.
 
 **Decision: Rust host with Ratatui, Crossterm, and Tokio.** This supersedes the earlier Python/Textual plan. Extensions are separate MCP server processes, may use any language, and require `hearth-extension.toml`. Hearth is the MCP client. Do not load untrusted extension code into the host process.
 
-Planned boundaries (paths do not exist yet; create only what the task needs):
+Boundaries (only `hearth-core` and `hearth` exist so far; create only what the task needs):
 
 | Area | Responsibility |
 |---|---|
@@ -69,17 +69,17 @@ These describe Hearth's runtime behavior. They do not require a separate product
 
 ## Verification
 
-There are no runnable project checks yet. For documentation-only work, inspect the actual diff, check local links, and run `git diff --check`; report application tests as unavailable.
-
-Once #2 creates the workspace, establish these root checks in CI and verify them locally before handing off code changes:
+Use `./scripts/check --quick` while iterating and `./scripts/check` before handoff. The full command runs script tests and these root checks, shared with Linux/macOS CI:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
 
 Run focused tests while iterating. Add component-specific commands here when they exist. Never disable checks, weaken assertions, or broaden capabilities to make tests pass. Report skipped checks and environment limits explicitly.
+
+For documentation-only work, inspect the actual diff, check local links, and run `git diff --check`. Use [the development workflow](docs/development.md): one issue/branch/worktree per agent, one responsible human, one fresh-context review following [REVIEW.md](REVIEW.md), and at most three automated review rounds. Coordinate shared contracts and lockfiles before parallel edits. Boundary-sensitive changes need the other teammate's review of the exact revision; the existing GitHub ruleset requires a teammate approval on every PR. Humans merge. Never change protections or merge to work around a failed check.
 
 | Changed behavior | Required evidence |
 |---|---|
