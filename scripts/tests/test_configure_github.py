@@ -59,6 +59,14 @@ class RulesetTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "another app"):
             MODULE.build_ruleset(current, actions_app_id=42)
 
+    def test_readback_matches_github_default_for_checks_on_branch_creation(self):
+        requested = MODULE.build_ruleset(self.current, actions_app_id=42)
+        # GitHub's PUT/GET round trip supplies this default for a new status rule.
+        saved = copy.deepcopy(requested)
+        status = next(rule for rule in saved["rules"] if rule["type"] == "required_status_checks")
+        status["parameters"].setdefault("do_not_enforce_on_create", False)
+        self.assertEqual(saved, requested)
+
     def test_refuses_inactive_ruleset(self):
         self.current["enforcement"] = "disabled"
         with self.assertRaisesRegex(ValueError, "active ruleset"):

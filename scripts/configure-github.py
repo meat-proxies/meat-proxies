@@ -46,6 +46,7 @@ def build_ruleset(current, *, queue=False, actions_app_id):
     if "required_status_checks" not in by_type:
         status = {"type": "required_status_checks", "parameters": {
             "strict_required_status_checks_policy": True,
+            "do_not_enforce_on_create": False,
             "required_status_checks": [],
         }}
         rules.append(status)
