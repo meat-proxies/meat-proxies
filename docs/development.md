@@ -1,5 +1,9 @@
 # Fast development with two humans and parallel agents
 
+Project owner: [@crooruhe](https://github.com/crooruhe). For this foundation PR,
+@AstralDrift is the responsible operator and @crooruhe is the human reviewer.
+Both teammates are listed in CODEOWNERS so future work can receive reciprocal review.
+
 ## Local loop
 
 Install Rust using [rustup](https://rustup.rs/) and Python 3.11 or later. The checked-in
