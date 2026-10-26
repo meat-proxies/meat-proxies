@@ -41,7 +41,7 @@ This describes trust boundaries, not a finalized wire protocol. Broker requests 
 
 Planned services: environment probe, config, secret broker, extension supervisor, policy engine, receipt ledger, MCP dispatcher, sandbox backend, model adapters. Select and verify SDKs, MCP revision, and extension discovery when implementing them; old version claims are not verified compatibility guarantees.
 
-The product targets Ubuntu 24.04 and Linux distributions under WSL; the likely demo environment is WSL. Issue #9 uses system `bwrap` behind `SandboxBackend`, with allowlisted egress through a proxy. macOS support and its proposed `sandbox-exec` backend are outside this scope. This supersedes the old `srt` default. Verify backend support and restrictions on Ubuntu 24.04 and the chosen WSL demo distribution. Alternatives must preserve the interface and enforcement; unavailable isolation prevents execution.
+The product targets Ubuntu 24.04, Arch Linux, and Linux distributions under WSL; the likely demo environment is WSL. Issue #9 uses system `bwrap` behind `SandboxBackend`, with allowlisted egress through a proxy. macOS support and its proposed `sandbox-exec` backend are outside this scope. This supersedes the old `srt` default. Verify backend support and restrictions on Ubuntu 24.04, Arch Linux, and the chosen WSL demo distribution. Alternatives must preserve the interface and enforcement; unavailable isolation prevents execution.
 
 ## Capabilities, secrets, and receipts
 

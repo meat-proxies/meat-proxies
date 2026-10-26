@@ -12,7 +12,7 @@ Hearth is one terminal where developers and agents use the same extension tools 
 
 ## Repository state and stack
 
-As of 2026-10-26, the checkout has a Rust workspace with a help/version executable, an empty core crate, CLI smoke tests, and local/CI checks. Targets are Ubuntu 24.04 and Linux distributions under WSL; rehearse the demo in the chosen WSL distribution. macOS is outside the current scope. TUI, extensions, policy, sandbox, broker, and demo behavior are not implemented. Do not claim the skeleton enforces runtime boundaries.
+As of 2026-10-26, the checkout has a Rust workspace with a help/version executable, an empty core crate, CLI smoke tests, and local/CI checks. Targets are Ubuntu 24.04, Arch Linux, and Linux distributions under WSL; rehearse the demo in the chosen WSL distribution. macOS is outside the current scope. TUI, extensions, policy, sandbox, broker, and demo behavior are not implemented. Do not claim the skeleton enforces runtime boundaries.
 
 **Decision: Rust host with Ratatui, Crossterm, and Tokio.** This supersedes the earlier Python/Textual plan. Extensions are separate MCP server processes, may use any language, and require `hearth-extension.toml`. Hearth is the MCP client. Do not load untrusted extension code into the host process.
 
@@ -69,7 +69,7 @@ These describe Hearth's runtime behavior. They do not require a separate product
 
 ## Verification
 
-Use `./scripts/check --quick` while iterating and `./scripts/check` before handoff. The full command runs script tests and these root checks, shared with Ubuntu 24.04 CI:
+Use `./scripts/check --quick` while iterating and `./scripts/check` before handoff. The full command runs script tests and these root checks, shared with Ubuntu 24.04 and Arch Linux CI:
 
 ```sh
 cargo fmt --all -- --check
@@ -90,7 +90,7 @@ For documentation-only work, inspect the actual diff, check local links, and run
 | TUI | Exercise actual state transitions/renderer with fixtures; verify retained state, narrow/wide layouts, and terminal restoration around external tools |
 | Triage/demo | Test bad image tag, CrashLoop, missing config; show verdict/confidence/evidence/next step; run without an agent |
 
-Use unit tests for decisions and integration tests for enforcement. A mocked deny does not prove OS isolation. Exercise the Linux backend on Ubuntu 24.04 and the chosen WSL demo distribution before claiming readiness. Hosted Ubuntu CI alone does not establish WSL isolation. macOS is outside the hackathon scope; add platform tests before claiming future support.
+Use unit tests for decisions and integration tests for enforcement. A mocked deny does not prove OS isolation. Exercise the Linux backend on Ubuntu 24.04, Arch Linux, and the chosen WSL demo distribution before claiming readiness. Hosted Ubuntu CI alone does not establish WSL isolation. macOS is outside the hackathon scope; add platform tests before claiming future support.
 
 ## Handoff
 

@@ -69,11 +69,11 @@ as a workaround. This PR does not implement conditional self-merge or auto-merge
 
 Required proof follows AGENTS.md's verification table. In particular, a mocked deny
 does not prove isolation, a successful build does not prove terminal restoration,
-and passing unit tests do not prove a full no-agent demo. Ubuntu 24.04 CI runs the same
-baseline. Targets are Ubuntu 24.04 and Linux distributions under WSL, with the demo
-rehearsed in its chosen WSL distribution. Hosted Ubuntu CI does not establish WSL
-readiness. Real Linux sandbox tests must land with #9 and run in the demo WSL
-environment too; unavailable required backends must fail rather than skip. #15 must
+and passing unit tests do not prove a full no-agent demo. Ubuntu 24.04 and Arch userspace CI run the same
+baseline. Targets are Ubuntu 24.04, Arch Linux, and Linux distributions under WSL, with the demo
+rehearsed in its chosen WSL distribution. Hosted Ubuntu/Arch container CI does not establish WSL
+readiness or native Arch sandbox enforcement. Real Linux sandbox tests must land with #9 and run on Ubuntu, native Arch, and the demo WSL
+environment; unavailable required backends must fail rather than skip. #15 must
 probe actual isolation prerequisites there, and #14 must rehearse seed/reset and the
 no-agent demo there. macOS support and CI are outside scope. Current CI does not
 claim sandbox or WSL support.
@@ -83,8 +83,10 @@ claim sandbox or WSL support.
 CI runs for PRs, pushes to master, and merge groups. It caches builds by OS, architecture,
 toolchain and manifests, cancels superseded runs only for the same PR, and always reports
 the stable `CI` aggregate. Workflow-level path filters are intentionally absent so a
-required check cannot disappear on documentation-only PRs. The Ubuntu 24.04 check job must
-pass. CodeQL analyzes Rust and Actions on PRs, master, merge groups, and weekly.
+required check cannot disappear on documentation-only PRs. The Ubuntu 24.04 and Arch Linux check jobs must
+both pass. Arch runs the official rolling `archlinux:base-devel` container with a full
+package update; this tests Arch userspace on the hosted Ubuntu kernel, not native
+Arch kernel isolation. Its build cache is separate from Ubuntu’s. CodeQL analyzes Rust and Actions on PRs, master, merge groups, and weekly.
 Rust analysis uses build mode `none`; generated code may receive less complete analysis.
 CodeQL complements runtime boundary tests. Actions are pinned to immutable commits.
 
@@ -144,6 +146,7 @@ using GitHub history. Do not build a metrics platform during the hackathon.
 
 ## Sources and limits
 
+- [Official Arch Linux container and update policy](https://github.com/archlinux/archlinux-docker)
 - [Merge queue and merge_group](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/configuring-pull-request-merges/managing-a-merge-queue)
 - [Secure Actions usage](https://docs.github.com/en/actions/reference/security/secure-use)
 - [CodeQL Rust build mode](https://docs.github.com/en/code-security/reference/code-scanning/codeql/build-options-for-compiled-languages)
