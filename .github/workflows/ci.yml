@@ -24,14 +24,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Install pinned Rust
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component clippy --component rustfmt
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             ~/.cargo/registry/index
