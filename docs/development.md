@@ -69,17 +69,22 @@ as a workaround. This PR does not implement conditional self-merge or auto-merge
 
 Required proof follows AGENTS.md's verification table. In particular, a mocked deny
 does not prove isolation, a successful build does not prove terminal restoration,
-and passing unit tests do not prove a full no-agent demo. Linux/macOS CI runs the same
-baseline. Real sandbox tests must land with #9 on both platforms; unavailable required
-backends must fail rather than skip. Current CI does not claim sandbox support.
+and passing unit tests do not prove a full no-agent demo. Ubuntu 24.04 CI runs the same
+baseline. Targets are Ubuntu 24.04 and Linux distributions under WSL, with the demo
+rehearsed in its chosen WSL distribution. Hosted Ubuntu CI does not establish WSL
+readiness. Real Linux sandbox tests must land with #9 and run in the demo WSL
+environment too; unavailable required backends must fail rather than skip. #15 must
+probe actual isolation prerequisites there, and #14 must rehearse seed/reset and the
+no-agent demo there. macOS support and CI are outside scope. Current CI does not
+claim sandbox or WSL support.
 
 ## GitHub checks and activation
 
 CI runs for PRs, pushes to master, and merge groups. It caches builds by OS, architecture,
 toolchain and manifests, cancels superseded runs only for the same PR, and always reports
 the stable `CI` aggregate. Workflow-level path filters are intentionally absent so a
-required check cannot disappear on documentation-only PRs. Independent platform jobs
-must both pass. CodeQL analyzes Rust and Actions on PRs, master, merge groups, and weekly.
+required check cannot disappear on documentation-only PRs. The Ubuntu 24.04 check job must
+pass. CodeQL analyzes Rust and Actions on PRs, master, merge groups, and weekly.
 Rust analysis uses build mode `none`; generated code may receive less complete analysis.
 CodeQL complements runtime boundary tests. Actions are pinned to immutable commits.
 
