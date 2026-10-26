@@ -15,7 +15,7 @@ The target 60-second demo:
 5. Show passing checks and get human approval before promotion.
 6. Finish on the receipt showing action, checks, approver, and chain head.
 
-Timing is a target to measure. Keep a keyboard-only path, seed/reset commands, a rehearsed script, and a backup recording. Rehearse in the chosen WSL demo distribution, including real sandbox checks and terminal restoration. Use synthetic data and explicitly allowlisted local kind clusters only.
+Timing is a target to measure. Keep a keyboard-only path, seed/reset commands, a rehearsed script, and a backup recording. Rehearse and record on the chosen native Linux demo machine, including real sandbox checks and terminal restoration. Use synthetic data and explicitly allowlisted local kind clusters only.
 
 The pitch connects triage and consolidated tools to **Magic Wand**, less agent babysitting to **Elixir of Life**, portable extension tools/rules to **Sorcerer's Apprentice**, and the removal of tab sprawl and unverified fixes to **Banishment**. Avoid unsupported time-saved claims.
 
@@ -41,7 +41,7 @@ This describes trust boundaries, not a finalized wire protocol. Broker requests 
 
 Planned services: environment probe, config, secret broker, extension supervisor, policy engine, receipt ledger, MCP dispatcher, sandbox backend, model adapters. Select and verify SDKs, MCP revision, and extension discovery when implementing them; old version claims are not verified compatibility guarantees.
 
-The product targets Ubuntu 24.04, Arch Linux, and Linux distributions under WSL; the likely demo environment is WSL. Issue #9 uses system `bwrap` behind `SandboxBackend`, with allowlisted egress through a proxy. macOS support and its proposed `sandbox-exec` backend are outside this scope. This supersedes the old `srt` default. Verify backend support and restrictions on Ubuntu 24.04, Arch Linux, and the chosen WSL demo distribution. Alternatives must preserve the interface and enforcement; unavailable isolation prevents execution.
+Primary product and demo targets are native Ubuntu 24.04 and Arch Linux. WSL compatibility is optional follow-up and does not block the hackathon demo. Issue #9 uses system `bwrap` behind `SandboxBackend`, with allowlisted egress through a proxy. macOS support and its proposed `sandbox-exec` backend are outside this scope. This supersedes the old `srt` default. Verify backend support and restrictions on native Ubuntu 24.04 and Arch Linux. Alternatives must preserve the interface and enforcement; unavailable isolation prevents execution.
 
 ## Capabilities, secrets, and receipts
 
@@ -63,7 +63,7 @@ Approval precedes cluster mutations, image push, mirrord steal, writes beyond ru
 
 The read-only environment probe feeds Home/Context and safe agent context: OS, architecture, shell, terminal, tool availability, container/pod indicators, kube context, Docker endpoint, interfaces/routes/DNS, and redacted proxy settings. Report confidence for container detection. Credential-bearing reads stay in the trusted host. Never automatically target an ambient cluster. Verify client flag/environment/context precedence before shipping. Flag mounted Docker sockets as privileged access. Network probes obey policy and use bounded, cancellable I/O.
 
-`hearth doctor` checks sandbox prerequisites, Linux user namespaces, kind, and model-key presence, explaining each failure. On WSL, report the distribution/kernel environment and verify actual isolation capabilities; passing hosted Ubuntu CI is insufficient to claim WSL readiness. A real isolation smoke test is stronger than executable discovery. Missing a model key disables assistance, not keyboard operation or deterministic triage.
+`hearth doctor` checks sandbox prerequisites, Linux user namespaces, kind, and model-key presence, explaining each failure. Verify actual isolation on the native Linux demo machine. If optional WSL support is pursued, report its distribution/kernel environment and test it separately; hosted Ubuntu CI is insufficient to claim WSL readiness. A real isolation smoke test is stronger than executable discovery. Missing a model key disables assistance, not keyboard operation or deterministic triage.
 
 Planned modes: Home/Context, Pods & Volumes, HTTP, Images, Triage, Deploy/mirrord, Agent, Receipts, Setup. Ship in issue order. Retain state on switch, pause hidden polling, keep I/O off rendering, and restore the terminal around external applications. The earlier <50 ms mode-switch target remains unmeasured; define measurement before reporting results.
 
@@ -109,4 +109,4 @@ Check chosen versions at implementation time; source inclusion does not establis
 - [kind](https://kind.sigs.k8s.io/), [Docker contexts](https://docs.docker.com/engine/manage-resources/contexts/)
 - [mirrord config](https://metalbear.com/mirrord/docs/config), [incoming traffic](https://metalbear.com/mirrord/docs/using-mirrord/incoming-traffic), [Vite server options](https://vite.dev/config/server-options)
 
-Before claiming readiness, prove backend availability on Ubuntu 24.04 and the demo WSL environment, proxy bypass prevention, secret injection/redaction, MCP compatibility, and mirrord/HMR behavior where included. macOS needs its own implementation and platform tests before any future support claim. [Documentation PR #21](https://github.com/meat-proxies/meat-proxies/pull/21) establishes this guidance and supersedes the closed [PR #1](https://github.com/meat-proxies/meat-proxies/pull/1); do not restore its competing tracker or obsolete implementation claims.
+Before claiming readiness, prove backend availability on native Ubuntu 24.04 and Arch Linux, proxy bypass prevention, secret injection/redaction, MCP compatibility, and mirrord/HMR behavior where included. macOS needs its own implementation and platform tests before any future support claim. [Documentation PR #21](https://github.com/meat-proxies/meat-proxies/pull/21) establishes this guidance and supersedes the closed [PR #1](https://github.com/meat-proxies/meat-proxies/pull/1); do not restore its competing tracker or obsolete implementation claims.

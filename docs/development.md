@@ -69,14 +69,16 @@ as a workaround. This PR does not implement conditional self-merge or auto-merge
 
 Required proof follows AGENTS.md's verification table. In particular, a mocked deny
 does not prove isolation, a successful build does not prove terminal restoration,
-and passing unit tests do not prove a full no-agent demo. Ubuntu 24.04 and Arch userspace CI run the same
-baseline. Targets are Ubuntu 24.04, Arch Linux, and Linux distributions under WSL, with the demo
-rehearsed in its chosen WSL distribution. Hosted Ubuntu/Arch container CI does not establish WSL
-readiness or native Arch sandbox enforcement. Real Linux sandbox tests must land with #9 and run on Ubuntu, native Arch, and the demo WSL
-environment; unavailable required backends must fail rather than skip. #15 must
-probe actual isolation prerequisites there, and #14 must rehearse seed/reset and the
-no-agent demo there. macOS support and CI are outside scope. Current CI does not
-claim sandbox or WSL support.
+and passing unit tests do not prove a full no-agent demo. Ubuntu 24.04 and Arch
+userspace CI run the same baseline. Primary targets are native Ubuntu 24.04 and
+Arch Linux; develop, rehearse, and record the demo on native Linux. Container CI
+does not establish native sandbox enforcement. Real Linux sandbox tests must land
+with #9 and run on native Ubuntu and Arch; unavailable required backends must fail
+rather than skip. #15 must probe actual isolation prerequisites there, and #14 must
+rehearse seed/reset and the no-agent demo on the native demo machine. WSL compatibility
+is optional follow-up, not a hackathon acceptance gate; test it separately before
+claiming support. macOS support and CI are outside scope. Current CI does not claim
+sandbox or WSL support.
 
 ## GitHub checks and activation
 
