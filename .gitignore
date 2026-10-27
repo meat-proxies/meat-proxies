@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Hearth local credentials and runtime receipts
+.hearth/
+.env.*
+!.env.example
+*.kubeconfig
