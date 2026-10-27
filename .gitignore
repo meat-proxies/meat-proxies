@@ -220,6 +220,10 @@ __marimo__/
 
 # Environment-specific .env files (allowed for local dev only; added by setup)
 .env*
+!.env.example
+
+# Local kubeconfig files
+*.kubeconfig
 
 # UV tool and lock files (uv.lock is included at maintainer discretion)
 # uv.lock
