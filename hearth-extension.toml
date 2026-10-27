@@ -1,0 +1,26 @@
+# Hearth Extension Manifest Example
+
+[extension]
+name = "k8s-pods"
+version = "0.1.0"
+owner = "platform-team"
+
+[capabilities.kubernetes]
+# Mapped 1:1 onto Kubernetes RBAC verbs/resources.
+allow = [
+  { verbs = ["get", "list", "watch"], resources = ["pods", "pods/log", "persistentvolumeclaims"], namespaces = ["dev", "staging"] },
+]
+
+[capabilities.network]
+allowed_domains = ["api.github.com"]
+
+[capabilities.filesystem]
+read  = ["."]
+write = ["./.hearth/tmp"]
+deny_read = ["~/.ssh", "~/.kube", ".env"]
+
+[capabilities.secrets]
+uses = ["GITHUB_TOKEN"]
+
+[mcp]
+expose_tools = true

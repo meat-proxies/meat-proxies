@@ -1,0 +1,53 @@
+=== FINAL PROJECT STRUCTURE ===
+
+AGENTS.md                     # Open AGENTS.md convention - KEEP
+.gitignore                    # Enhanced with hearth-specific ignores
+README.md                     # Basic README
+pyproject.toml                # NEW - Project configuration
+hearth-extension.toml         # NEW - Extension manifest example
+ratatui-simple.rs             # NEW - Rust TUI demo
+PROJECT_ANALYSIS.md           # NEW - Analysis summary
+
+=== FILES WE STILL NEED TO CREATE ===
+
+# Core Project Structure
+hearth/                       # Main Python package
+├── __init__.py
+├── app.py                    # Main Textual application entry point
+├── screens/                  # Individual TUI screens
+│   ├── home_screen.py
+│   ├── setup_screen.py
+│   ├── receipts_screen.py
+│   └── ...other screens...
+├── workers/                  # Background workers
+├── providers/                # Model provider adapters
+├── sandbox/                  # Sandbox backend integration
+├── mcp/                      # MCP tool bus and resources
+├── schemas/                  # Pydantic models and validation
+└── widgets/                  # Custom Textual widgets
+
+# Configuration & Runtime
+.hearth/                      # Runtime configuration (gitignored)
+├── config.toml               # User config (never committed)
+├── logs/                     # Log files
+├── receipts/                 # Hash-chained receipts
+└── tmp/                      # Temporary files
+
+# Testing
+tests/                        # Automated tests
+├── conftest.py               # Test utilities
+└── test_core.py              # Core functionality tests
+└── test_extensions.py        # Extension loading tests
+
+# Documentation (optional)
+docs/                         # Extended documentation
+├── AGENTS.md                   # (Already exists)
+└── ADR/                      # Architecture Decision Records
+└── USE_CASES.md                # User scenarios
+└── CONTRIBUTING.md             # Contribution guidelines
+
+# Build & Dev Tools
+Makefile                      # Build automation
+uv.lock                       # Dependency lockfile (optional)
+requirements-dev.txt          # Dev dependencies
+└── pytest.ini                # Test configuration
