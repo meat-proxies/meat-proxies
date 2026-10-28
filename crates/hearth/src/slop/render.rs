@@ -1,19 +1,21 @@
-//! Draws a game frame into a 24-bit framebuffer and encodes it for a truecolor
-//! terminal, two pixels per cell using the upper half block.
+//! Draws a game frame into a 24-bit framebuffer, at 1x with the small art or
+//! at higher scales with the detailed art, and encodes it for a truecolor
+//! terminal two pixels per cell using the upper half block.
 
 use std::fmt::Write as _;
 
+use super::art::ArtSet;
 use super::game::{Game, Phase, RUNNER_X};
-use super::sprites::{self, Sprite};
+use super::raster::Bitmap;
 
-/// Pixels between the bottom of the canvas and the ground line.
+/// World units between the bottom of the canvas and the ground line.
 pub const GROUND_DEPTH: usize = 6;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
-    fn mix(self, other: Rgb, t: f32) -> Rgb {
+    pub fn mix(self, other: Rgb, t: f32) -> Rgb {
         let t = t.clamp(0.0, 1.0);
         let lerp = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
         Rgb(
@@ -21,6 +23,11 @@ impl Rgb {
             lerp(self.1, other.1),
             lerp(self.2, other.2),
         )
+    }
+
+    fn scale(self, k: f32) -> Rgb {
+        let f = |c: u8| (f32::from(c) * k).round().clamp(0.0, 255.0) as u8;
+        Rgb(f(self.0), f(self.1), f(self.2))
     }
 }
 
@@ -43,18 +50,41 @@ impl Frame {
         self.pixels[y * self.width + x]
     }
 
+    pub fn pixels(&self) -> &[Rgb] {
+        &self.pixels
+    }
+
+    #[cfg(test)]
+    pub fn fill(&mut self, color: Rgb) {
+        self.pixels.fill(color);
+    }
+
     fn set(&mut self, x: i32, y: i32, color: Rgb) {
         if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
             self.pixels[y as usize * self.width + x as usize] = color;
         }
     }
 
-    /// Draws a sprite with its top-left corner at screen (x, y), clipping at edges.
-    pub fn sprite(&mut self, sprite: Sprite, x: i32, y: i32) {
-        for (dy, row) in sprite.iter().enumerate() {
-            for (dx, key) in row.bytes().enumerate() {
-                if let Some(color) = sprites::color(key) {
-                    self.set(x + dx as i32, y + dy as i32, color);
+    /// Blends `color` over the pixel at `alpha` opacity.
+    fn blend(&mut self, x: i32, y: i32, color: Rgb, alpha: f32) {
+        if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
+            let i = y as usize * self.width + x as usize;
+            self.pixels[i] = self.pixels[i].mix(color, alpha);
+        }
+    }
+
+    /// Composites a bitmap with its top-left corner at (x, y), clipping at edges.
+    pub fn blit(&mut self, bitmap: &Bitmap, x: i32, y: i32) {
+        for by in 0..bitmap.h {
+            for bx in 0..bitmap.w {
+                let [r, g, b, a] = bitmap.get(bx, by);
+                if a > 0 {
+                    self.blend(
+                        x + bx as i32,
+                        y + by as i32,
+                        Rgb(r, g, b),
+                        f32::from(a) / 255.0,
+                    );
                 }
             }
         }
@@ -106,22 +136,21 @@ impl Frame {
     }
 }
 
-/// Screen row of the ground line for a canvas of this height.
-pub fn ground_line(height: usize) -> i32 {
-    (height - GROUND_DEPTH) as i32
+/// Screen row of the ground line for a canvas of this height and scale.
+pub fn ground_line(height: usize, scale: usize) -> i32 {
+    height.saturating_sub(GROUND_DEPTH * scale) as i32
 }
 
-/// Converts a world position (feet height above ground) to a sprite's top row.
-fn top_row(height: usize, sprite: Sprite, world_y: f32) -> i32 {
-    ground_line(height) - world_y.round() as i32 - sprites::height(sprite) as i32
-}
-
-pub fn draw(game: &Game, width: usize, height: usize) -> Frame {
+pub fn draw(game: &Game, art: &ArtSet, width: usize, height: usize) -> Frame {
+    let s = art.scale;
     let mut frame = Frame::new(width, height);
-    sky(&mut frame, game);
-    skyline(&mut frame, game.distance * 0.15, Rgb(58, 52, 92), 22, 41);
-    skyline(&mut frame, game.distance * 0.4, Rgb(86, 66, 110), 13, 97);
-    ground(&mut frame, game.distance);
+    let palette = palette(game);
+    sky(&mut frame, &palette);
+    sun(&mut frame, &palette, s);
+    clouds(&mut frame, &palette, game.distance * 0.06, s);
+    skyline(&mut frame, game.distance * 0.15, palette.far, 22, 41, s);
+    skyline(&mut frame, game.distance * 0.4, palette.near, 13, 97, s);
+    ground(&mut frame, game.distance, s);
     if matches!(game.phase, Phase::Over { .. }) {
         // Desaturate the world, but not the sprites, while the runner is slopped.
         for pixel in &mut frame.pixels {
@@ -130,101 +159,261 @@ pub fn draw(game: &Game, width: usize, height: usize) -> Frame {
         }
     }
 
-    let tick = game.frame();
+    let place = |bitmap: &Bitmap, x: f32, y: f32| origin(bitmap, x, y, s, height);
     for spark in &game.sparks {
-        let sprite = if (game.ticks / 8).is_multiple_of(2) {
-            sprites::SPARK_A
-        } else {
-            sprites::SPARK_B
-        };
-        frame.sprite(
-            sprite,
-            spark.x.round() as i32,
-            top_row(height, sprite, spark.y),
-        );
+        let bitmap = art.spark(game.ticks);
+        let (x, y) = place(bitmap, spark.x, spark.y);
+        frame.blit(bitmap, x, y);
     }
     for obstacle in &game.obstacles {
-        let sprite = obstacle.kind.sprite(tick);
-        frame.sprite(
-            sprite,
-            obstacle.x.round() as i32,
-            top_row(height, sprite, obstacle.y()),
-        );
+        let bitmap = art.obstacle(obstacle.kind, game.frame());
+        let (x, y) = place(bitmap, obstacle.x, obstacle.y());
+        frame.blit(bitmap, x, y);
     }
-    let runner = game.runner_sprite();
-    frame.sprite(
-        runner,
-        RUNNER_X as i32,
-        top_row(height, runner, game.runner_y),
-    );
+    let runner = art.runner(game);
+    let (x, y) = place(runner, RUNNER_X, game.runner_y);
+    frame.blit(runner, x, y);
     frame
 }
 
-/// A vertical gradient that drifts from afternoon to sunset to night as the score climbs.
-fn sky(frame: &mut Frame, game: &Game) {
-    const SKIES: [(Rgb, Rgb); 3] = [
-        (Rgb(92, 158, 226), Rgb(250, 214, 180)),
-        (Rgb(122, 78, 140), Rgb(255, 150, 96)),
-        (Rgb(18, 20, 48), Rgb(70, 56, 112)),
+/// Screen position of a bitmap's top-left corner for a world position, where
+/// `y` is the height of its bottom edge above the ground.
+fn origin(bitmap: &Bitmap, x: f32, y: f32, scale: usize, height: usize) -> (i32, i32) {
+    let s = scale as f32;
+    (
+        (x * s).round() as i32,
+        ground_line(height, scale) - (y * s).round() as i32 - bitmap.h as i32,
+    )
+}
+
+/// Colors for the current time of day.
+struct Palette {
+    top: Rgb,
+    horizon: Rgb,
+    sun: Rgb,
+    cloud: Rgb,
+    far: Rgb,
+    near: Rgb,
+}
+
+/// The sky drifts from afternoon to sunset to night as the score climbs.
+fn palette(game: &Game) -> Palette {
+    const TIMES: [[Rgb; 6]; 3] = [
+        [
+            Rgb(92, 158, 226),
+            Rgb(250, 214, 180),
+            Rgb(255, 246, 214),
+            Rgb(255, 255, 255),
+            Rgb(58, 52, 92),
+            Rgb(86, 66, 110),
+        ],
+        [
+            Rgb(122, 78, 140),
+            Rgb(255, 150, 96),
+            Rgb(255, 176, 104),
+            Rgb(255, 214, 196),
+            Rgb(70, 44, 82),
+            Rgb(104, 58, 92),
+        ],
+        [
+            Rgb(18, 20, 48),
+            Rgb(70, 56, 112),
+            Rgb(232, 232, 250),
+            Rgb(120, 116, 160),
+            Rgb(30, 28, 60),
+            Rgb(48, 40, 82),
+        ],
     ];
     let cycle = (game.score() as f32 / 400.0) % 3.0;
-    let (from, to) = (cycle as usize, (cycle as usize + 1) % 3);
-    let t = cycle.fract();
-    let top = SKIES[from].0.mix(SKIES[to].0, t);
-    let bottom = SKIES[from].1.mix(SKIES[to].1, t);
-    let horizon = ground_line(frame.height).max(1) as f32;
+    let (from, to, t) = (cycle as usize, (cycle as usize + 1) % 3, cycle.fract());
+    let c = |i: usize| TIMES[from][i].mix(TIMES[to][i], t);
+    Palette {
+        top: c(0),
+        horizon: c(1),
+        sun: c(2),
+        cloud: c(3),
+        far: c(4),
+        near: c(5),
+    }
+}
+
+fn sky(frame: &mut Frame, palette: &Palette) {
+    let horizon = frame.height.max(1) as f32 * 0.85;
     for y in 0..frame.height {
-        let color = top.mix(bottom, y as f32 / horizon);
-        for x in 0..frame.width {
-            frame.set(x as i32, y as i32, color);
+        let color = palette.top.mix(palette.horizon, y as f32 / horizon);
+        frame.pixels[y * frame.width..(y + 1) * frame.width].fill(color);
+    }
+}
+
+fn sun(frame: &mut Frame, palette: &Palette, s: usize) {
+    let s = s as f32;
+    let (cx, cy) = (frame.width as f32 * 0.78, frame.height as f32 * 0.24);
+    let (radius, glow) = (4.5 * s, 13.0 * s);
+    let (x0, x1) = ((cx - glow).max(0.0) as i32, (cx + glow) as i32);
+    let (y0, y1) = ((cy - glow).max(0.0) as i32, (cy + glow) as i32);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+            if d < radius + 0.5 {
+                frame.blend(x, y, palette.sun, (radius + 0.5 - d).clamp(0.0, 1.0));
+            } else if d < glow {
+                frame.blend(x, y, palette.sun, 0.35 * (1.0 - d / glow).powi(2));
+            }
         }
     }
 }
 
-/// Server-rack silhouettes scrolling at `offset`, up to `max_height` tall.
-fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: i32, salt: u32) {
-    let ground = ground_line(frame.height);
-    let lit = color.mix(Rgb(255, 210, 130), 0.55);
-    for x in 0..frame.width as i32 {
-        let world = x + offset as i32;
-        let block = world.div_euclid(9) as u32;
-        let hash = block
-            .wrapping_mul(2_654_435_761)
-            .wrapping_add(salt)
-            .rotate_left(13);
-        let tall = 4 + (hash % max_height as u32) as i32;
-        if world.rem_euclid(9) == 8 {
+fn hash(n: u32) -> u32 {
+    let mut x = n.wrapping_mul(0x9E37_79B9) ^ 0x85EB_CA6B;
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x2C1B_3C6D);
+    x ^ (x >> 12)
+}
+
+/// Soft puffy clouds, shaded underneath and anti-aliased at the edges.
+fn clouds(frame: &mut Frame, palette: &Palette, offset: f32, s: usize) {
+    const SPACING: f32 = 46.0;
+    let sf = s as f32;
+    let units_wide = frame.width as f32 / sf;
+    let first = (offset / SPACING).floor() as i32 - 1;
+    let last = ((offset + units_wide) / SPACING).ceil() as i32 + 1;
+    let sky_units = frame.height as f32 / sf * 0.45;
+    for slot in first..=last {
+        let h = hash(slot as u32 ^ 0xC10D);
+        if h.is_multiple_of(3) {
             continue;
         }
-        for y in (ground - tall).max(0)..ground {
-            let window =
-                world.rem_euclid(3) == 1 && (ground - y) % 3 == 1 && (hash >> (y % 16)) & 1 == 1;
-            frame.set(x, y, if window { lit } else { color });
+        let size = 0.7 + (h >> 8 & 255) as f32 / 255.0 * 0.6;
+        let cx = slot as f32 * SPACING + (h >> 16 & 31) as f32 - offset;
+        let cy = 4.0 + (h >> 4 & 255) as f32 / 255.0 * (sky_units - 4.0).max(1.0);
+        let puffs = [
+            (0.0, 0.0, 3.2),
+            (-3.6, 1.1, 2.3),
+            (3.4, 0.9, 2.5),
+            (1.2, -1.4, 2.2),
+        ];
+        let reach = 7.5 * size;
+        let (x0, x1) = (((cx - reach) * sf) as i32, ((cx + reach) * sf) as i32);
+        let (y0, y1) = (((cy - reach) * sf) as i32, ((cy + reach) * sf) as i32);
+        let base = palette.cloud.mix(palette.top, 0.08);
+        let shade = palette
+            .cloud
+            .mix(palette.horizon, 0.45)
+            .mix(palette.top, 0.2);
+        for y in y0.max(0)..=y1 {
+            for x in x0.max(0)..=x1 {
+                let (ux, uy) = ((x as f32 + 0.5) / sf, (y as f32 + 0.5) / sf);
+                let d = puffs
+                    .iter()
+                    .map(|&(px, py, r)| {
+                        ((ux - cx - px * size).powi(2) + (uy - cy - py * size).powi(2)).sqrt()
+                            - r * size
+                    })
+                    .fold(f32::MAX, f32::min);
+                if d < 0.0 {
+                    let alpha = (-d * sf).clamp(0.0, 1.0) * 0.88;
+                    let under = ((uy - cy) / (2.5 * size) + 0.3).clamp(0.0, 1.0);
+                    frame.blend(x, y, base.mix(shade, under), alpha);
+                }
+            }
         }
     }
 }
 
-fn ground(frame: &mut Frame, distance: f32) {
-    let line = ground_line(frame.height);
-    let offset = distance as i32;
+/// Server-rack silhouettes scrolling at `offset` units, up to `max_height` units tall.
+fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, salt: u32, s: usize) {
+    let s = s as i32;
+    let ground = ground_line(frame.height, s as usize);
+    let lit = color.mix(Rgb(255, 210, 130), 0.55);
+    let edge = color.scale(1.25);
+    let offset_px = (offset * s as f32) as i32;
     for x in 0..frame.width as i32 {
-        let world = (x + offset) as u32;
-        let hash = world.wrapping_mul(2_246_822_519).rotate_left(7);
-        frame.set(x, line, Rgb(238, 196, 140));
-        frame.set(x, line + 1, Rgb(176, 120, 82));
-        for y in line + 2..frame.height as i32 {
-            let depth = (y - line) as f32 / GROUND_DEPTH as f32;
-            let base = Rgb(140, 88, 64).mix(Rgb(86, 52, 44), depth);
-            let pebble = (hash >> (y as u32 % 24)) & 15 == 0;
-            frame.set(x, y, if pebble { Rgb(206, 160, 116) } else { base });
+        let world = x + offset_px;
+        let (unit, sub) = (world.div_euclid(s), world.rem_euclid(s));
+        let block = unit.div_euclid(9) as u32;
+        let tall = (4 + hash(block.wrapping_add(salt)) % max_height) as i32 * s;
+        let col = unit.rem_euclid(9);
+        if col == 8 {
+            continue;
+        }
+        let bits = hash(block ^ salt.rotate_left(7));
+        for y in (ground - tall).max(0)..ground {
+            let row = (ground - y - 1) / s;
+            let window =
+                col % 3 == 1 && row % 3 == 1 && row + 2 < tall / s && (bits >> (row % 24)) & 1 == 1;
+            let color = if window {
+                lit
+            } else if s > 1 && col == 0 && sub == 0 {
+                edge
+            } else {
+                color
+            };
+            frame.set(x, y, color);
+        }
+        // Rooftop antennas on some racks.
+        if s > 1 && bits.is_multiple_of(5) && col == 4 && sub == 0 {
+            for y in (ground - tall - 2 * s).max(0)..(ground - tall) {
+                frame.set(x, y, color);
+            }
+            frame.set(x, ground - tall - 2 * s - 1, Rgb(255, 120, 96));
+        }
+    }
+}
+
+/// Grass over textured earth, with pebbles, scrolling with the run.
+fn ground(frame: &mut Frame, distance: f32, s: usize) {
+    let si = s as i32;
+    let line = ground_line(frame.height, s);
+    let offset = (distance * s as f32) as i32;
+    let grass = Rgb(120, 176, 88);
+    let grass_light = Rgb(176, 214, 112);
+    for x in 0..frame.width as i32 {
+        let world = x + offset;
+        let h = hash(world as u32);
+        // Blades poke above the line at higher scales.
+        let blades = if s > 1 {
+            (h % (si as u32 + 1)) as i32
+        } else {
+            0
+        };
+        for y in (line - blades).max(0)..line + si {
+            frame.set(
+                x,
+                y,
+                if y < line + si / 2 {
+                    grass_light
+                } else {
+                    grass
+                },
+            );
+        }
+        for y in line + si..frame.height as i32 {
+            let depth = (y - line) as f32 / (GROUND_DEPTH * s) as f32;
+            let mut color = Rgb(150, 96, 68).mix(Rgb(86, 52, 44), depth);
+            if s > 1 {
+                let noise = (hash(world as u32 ^ (y as u32) << 16) & 15) as f32 / 15.0;
+                color = color.scale(0.94 + noise * 0.1);
+            }
+            let (ux, uy) = (world.div_euclid(si), (y - line) / si);
+            let cell = hash(ux.div_euclid(3) as u32 ^ (uy as u32).wrapping_mul(0x51ED));
+            if cell.is_multiple_of(7) && ux.rem_euclid(3) == 1 && uy >= 2 {
+                color = if s > 1 && (y - line) % si == 0 {
+                    Rgb(226, 186, 140)
+                } else {
+                    Rgb(198, 154, 112)
+                };
+            }
+            frame.set(x, y, color);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
-    use crate::slop::game::{Game, Input, SlopKind};
+    use crate::slop::game::{Input, SlopKind};
 
     const W: usize = 96;
     const H: usize = 46;
@@ -236,53 +425,103 @@ mod tests {
     }
 
     #[test]
-    fn runner_stands_on_the_ground_line() {
+    fn runner_stands_on_the_ground_line_at_every_scale() {
         let game = quiet();
-        let frame = draw(&game, W, H);
-        let sprite = game.runner_sprite();
-        let feet = ground_line(H) - 1;
-        let row = sprite[sprites::height(sprite) - 1];
-        let (dx, key) = row
-            .bytes()
-            .enumerate()
-            .find(|&(_, k)| k != b'.')
-            .expect("feet pixels");
-        assert_eq!(
-            frame.get(RUNNER_X as usize + dx, feet as usize),
-            sprites::color(key).expect("color")
-        );
+        for scale in [1, 2] {
+            let art = ArtSet::new(scale);
+            let (w, h) = (W * scale, H * scale);
+            let frame = draw(&game, &art, w, h);
+            let bitmap = art.runner(&game);
+            let (x0, y0) = origin(bitmap, RUNNER_X, 0.0, scale, h);
+            assert_eq!(y0 + bitmap.h as i32, ground_line(h, scale), "scale {scale}");
+            // The lowest fully opaque runner pixel is on screen, untouched by the background.
+            let (dx, dy) = (0..bitmap.h)
+                .rev()
+                .find_map(|y| {
+                    (0..bitmap.w)
+                        .find(|&x| bitmap.get(x, y)[3] == 255)
+                        .map(|x| (x, y))
+                })
+                .expect("opaque pixel");
+            let [r, g, b, _] = bitmap.get(dx, dy);
+            assert_eq!(
+                frame.get((x0 + dx as i32) as usize, (y0 + dy as i32) as usize),
+                Rgb(r, g, b)
+            );
+        }
     }
 
     #[test]
     fn jumping_moves_the_runner_up_the_screen() {
         let mut game = quiet();
-        let standing = draw(&game, W, H);
+        let art = ArtSet::new(2);
+        let standing = origin(art.runner(&game), RUNNER_X, game.runner_y, 2, H * 2).1;
         game.input(Input::Jump);
         for _ in 0..10 {
             game.tick();
         }
-        let jumping = draw(&game, W, H);
-        let head = |frame: &Frame| {
-            (0..H).find(|&y| {
-                frame.get(RUNNER_X as usize + 6, y) == sprites::color(b'k').expect("outline")
-            })
-        };
-        assert!(head(&jumping) < head(&standing));
+        let jumping = origin(art.runner(&game), RUNNER_X, game.runner_y, 2, H * 2).1;
+        assert!(
+            jumping < standing - 20,
+            "standing {standing}, jumping {jumping}"
+        );
     }
 
     #[test]
     fn obstacles_are_drawn_where_the_game_says() {
         let game = quiet();
-        let frame = draw(&game, W, H);
-        let skin = sprites::color(b'f').expect("skin");
-        assert!((70..84).any(|x| (0..H).any(|y| frame.get(x, y) == skin)));
+        for scale in [1, 2] {
+            let art = ArtSet::new(scale);
+            let frame = draw(&game, &art, W * scale, H * scale);
+            let bitmap = art.obstacle(SlopKind::Hand, 0);
+            let (x0, y0) = origin(bitmap, 70.0, 0.0, scale, H * scale);
+            let (cx, cy) = (bitmap.w / 2, bitmap.h * 3 / 4);
+            let [r, g, b, a] = bitmap.get(cx, cy);
+            assert_eq!(a, 255);
+            assert_eq!(
+                frame.get(x0 as usize + cx, y0 as usize + cy),
+                Rgb(r, g, b),
+                "scale {scale}"
+            );
+        }
     }
 
     #[test]
-    fn sprites_clip_at_screen_edges_without_panicking() {
+    fn detailed_scenes_use_far_more_colors() {
+        let game = quiet();
+        let count = |scale: usize| {
+            let frame = draw(&game, &ArtSet::new(scale), W * scale, H * scale);
+            frame.pixels().iter().collect::<HashSet<_>>().len()
+        };
+        let (small, detailed) = (count(1), count(2));
+        assert!(
+            detailed > small * 3 && detailed > 1000,
+            "1x {small} colors, 2x {detailed}"
+        );
+    }
+
+    #[test]
+    fn bitmaps_clip_at_screen_edges_without_panicking() {
+        let art = ArtSet::new(2);
         let mut frame = Frame::new(8, 8);
-        frame.sprite(sprites::TOWER, -6, -6);
-        frame.sprite(sprites::TOWER, 5, 5);
+        frame.blit(art.obstacle(SlopKind::Tower, 0), -6, -6);
+        frame.blit(art.obstacle(SlopKind::Tower, 0), 5, 5);
+    }
+
+    #[test]
+    fn blit_blends_partial_alpha() {
+        let mut frame = Frame::new(1, 1);
+        frame.fill(Rgb(0, 0, 0));
+        frame.blit(
+            &Bitmap {
+                w: 1,
+                h: 1,
+                px: vec![[200, 100, 50, 128]],
+            },
+            0,
+            0,
+        );
+        assert_eq!(frame.get(0, 0), Rgb(100, 50, 25));
     }
 
     #[test]
@@ -316,14 +555,23 @@ mod tests {
 
     #[test]
     fn world_greys_out_on_game_over() {
+        let saturation = |frame: &Frame| {
+            let total: u32 = frame
+                .pixels()
+                .iter()
+                .map(|p| u32::from(p.0.max(p.1).max(p.2) - p.0.min(p.1).min(p.2)))
+                .sum();
+            total as f32 / frame.pixels().len() as f32
+        };
+        let art = ArtSet::new(1);
         let mut game = Game::new(W, 3);
         game.place(SlopKind::Puddle, RUNNER_X + 4.0);
+        let running = saturation(&draw(&game, &art, W, H));
         for _ in 0..30 {
             game.tick();
         }
         assert!(matches!(game.phase, Phase::Over { .. }));
-        let sky = draw(&game, W, H).get(W - 1, 0);
-        let spread = sky.0.max(sky.1).max(sky.2) - sky.0.min(sky.1).min(sky.2);
-        assert!(spread < 80, "sky should be desaturated, got {sky:?}");
+        let over = saturation(&draw(&game, &art, W, H));
+        assert!(over < running * 0.7, "running {running}, over {over}");
     }
 }

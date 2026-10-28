@@ -45,3 +45,4 @@ entry links the issue that defines its acceptance criteria. See
 Add requests that do not have an issue yet here as ⬜ backlog items.
 
 - ✅ Slop Runner: hidden bonus endless runner (`hearth --slop`), 24-bit pixel art in the terminal
+- ✅ Slop Runner high-detail art: smoothly shaded sprites, Kitty/iTerm2 image output, twin-tails runner in Claude colors
