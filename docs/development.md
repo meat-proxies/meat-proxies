@@ -90,6 +90,9 @@ both pass. Arch runs the official rolling `archlinux:base-devel` container with 
 package update; this tests Arch userspace on the hosted Ubuntu kernel, not native
 Arch kernel isolation. Its build cache is separate from Ubuntu’s. CodeQL analyzes Rust and Actions on PRs, master, merge groups, and weekly.
 Rust analysis uses build mode `none`; generated code may receive less complete analysis.
+The workflow excludes `rust/hard-coded-cryptographic-value` because fixed salts in the
+game renderer produce false positives. This rule is disabled for all Rust code in the
+repository. All other default queries remain active.
 CodeQL complements runtime boundary tests. Actions are pinned to immutable commits.
 
 All ordinary workflows use read-only contents permissions. Only CodeQL analysis gets
