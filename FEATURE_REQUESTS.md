@@ -43,3 +43,5 @@ entry links the issue that defines its acceptance criteria. See
 ## New requests
 
 Add requests that do not have an issue yet here as ⬜ backlog items.
+
+- ✅ Slop Runner: hidden bonus endless runner (`hearth --slop`), 24-bit pixel art in the terminal

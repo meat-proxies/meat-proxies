@@ -14,7 +14,7 @@ Hearth is one terminal where developers and agents use the same extension tools 
 
 As of 2026-10-26, the checkout has a Rust workspace with a help/version executable, an empty core crate, CLI smoke tests, and local/CI checks. Primary targets are native Ubuntu 24.04 and Arch Linux; develop, rehearse, and record the demo on native Linux. WSL compatibility is optional follow-up, not a hackathon acceptance gate. macOS is outside the current scope. TUI, extensions, policy, sandbox, broker, and demo behavior are not implemented. Do not claim the skeleton enforces runtime boundaries.
 
-**Decision: Rust host with Ratatui, Crossterm, and Tokio.** This supersedes the earlier Python/Textual plan. Extensions are separate MCP server processes, may use any language, and require `hearth-extension.toml`. Hearth is the MCP client. Do not load untrusted extension code into the host process.
+**Decision: Rust host with Ratatui, Crossterm, and Tokio.** Extensions are separate MCP server processes, may use any language, and require `hearth-extension.toml`. Hearth is the MCP client. Do not load untrusted extension code into the host process.
 
 Boundaries (only `hearth-core` and `hearth` exist so far; create only what the task needs):
 
