@@ -128,6 +128,14 @@ impl Spark {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pose {
+    Run,
+    Jump,
+    Duck,
+    Slopped,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     Running,
     Over { by: SlopKind },
@@ -215,13 +223,23 @@ impl Game {
         self.duck_ticks > 0 && self.on_ground()
     }
 
-    pub fn runner_sprite(&self) -> Sprite {
+    pub fn pose(&self) -> Pose {
         match self.phase {
-            Phase::Over { .. } => sprites::SLOPPED,
-            Phase::Running if self.ducking() => sprites::DUCK,
-            Phase::Running if !self.on_ground() => sprites::JUMP,
-            Phase::Running if ((self.distance / 9.0) as u32).is_multiple_of(2) => sprites::RUN_A,
-            Phase::Running => sprites::RUN_B,
+            Phase::Over { .. } => Pose::Slopped,
+            Phase::Running if self.ducking() => Pose::Duck,
+            Phase::Running if !self.on_ground() => Pose::Jump,
+            Phase::Running => Pose::Run,
+        }
+    }
+
+    /// The small sprite for the current pose; its size is the runner's hitbox.
+    pub fn runner_sprite(&self) -> Sprite {
+        match self.pose() {
+            Pose::Slopped => sprites::SLOPPED,
+            Pose::Duck => sprites::DUCK,
+            Pose::Jump => sprites::JUMP,
+            Pose::Run if ((self.distance / 9.0) as u32).is_multiple_of(2) => sprites::RUN_A,
+            Pose::Run => sprites::RUN_B,
         }
     }
 

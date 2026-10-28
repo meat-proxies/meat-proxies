@@ -45,8 +45,24 @@ to sunset to night as your score climbs. The slop to watch for:
 - **A tower of listicles**: the tallest thing you have to jump
 - **An em-dash swarm**: flies at head height, so duck (shows up once you get going)
 
-Needs an interactive terminal of at least 64×24 with 24-bit color, which most
-modern terminals support. The best score lasts until you quit and is not saved.
+The runner wears Claude-style colors: a cream dress with a terracotta sash and
+hem, terracotta ribbons in her twin tails, and charcoal tights and boots.
+
+**Graphics.** It picks the best look your terminal can show:
+
+| Terminal | What you get |
+|---|---|
+| Kitty, WezTerm, Ghostty (Kitty image protocol) or iTerm2 | High-detail art as real images, at any window size |
+| Any other 24-bit color terminal, at least 128×47 | High-detail art drawn with half-block characters |
+| Any other 24-bit color terminal, smaller (minimum 64×24) | The original small pixel art |
+
+Inside tmux or screen it uses half blocks, since they hide which terminal is
+outside. To force a mode, set `HEARTH_SLOP_GRAPHICS` to `kitty`, `iterm`,
+`blocks`, or `auto` (the default), for example
+`HEARTH_SLOP_GRAPHICS=blocks cargo run -p hearth -- --slop`. Image modes send
+about 4 MB/s on an 80×24 window, so prefer `blocks` over slow SSH links.
+
+The best score lasts until you quit and is not saved.
 
 ## Agent skills: Superpowers
 
