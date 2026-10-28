@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hearth"
+version = "0.1.0"
+description = "One beautiful terminal for developers and their agents"
+requires-python = ">=3.12"
+dependencies =
+    textual>=8.2.0,
+    pydantic-settings>=2.2.0,
+    kubernetes>=30.0.0,
+    keyring>=25.7.0,
+    mirrord>=0.1.0,
+    mcp>=0.1.0
+
+[project.scripts]
+hearth = "hearth.app:main"
+
+[tool.uv]
+# Pin exact versions for reproducibility
+# See: https://docs.astral.sh/uv/concepts/pinning/
+
+[tool.pydantic-settings]
+# Environment prefix for settings
+env_prefix = "HEARTH_"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hearth", "hearth*"]
