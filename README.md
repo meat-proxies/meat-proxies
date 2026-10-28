@@ -19,6 +19,22 @@ See [development and review](docs/development.md), [agent instructions](AGENTS.m
 and track progress.
 Feature status lives in [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md).
 
+## Agent skills: Superpowers
+
+This project uses [Superpowers](https://github.com/obra/superpowers), a library of
+workflow skills for coding agents (brainstorming, writing plans, test-driven
+development, systematic debugging, code review).
+
+- **Claude Code:** the repo's `.claude/settings.json` registers the plugin, so
+  Claude Code offers to install it when you trust the folder. To install it by
+  hand, run `/plugin marketplace add obra/superpowers-marketplace` and then
+  `/plugin install superpowers@superpowers-marketplace`.
+- **Codex CLI:** run `/plugins`, search for "superpowers", and choose Install Plugin.
+- **OpenCode:** tell it "Fetch and follow instructions from
+  https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.opencode/INSTALL.md".
+
+Where a Superpowers skill conflicts with [AGENTS.md](AGENTS.md), AGENTS.md wins.
+
 ## Hosting on Entire
 
 This project has been ported to [Entire](https://entire.com), a Git forge built

@@ -53,6 +53,10 @@ Build the smallest end-to-end slice needed by the issue. Verify unfinished enfor
 - When the feature meets its **Done when** criteria and checks pass, mark it ✅ completed. Use the green checkmark emoji ✅ only for completed features; a stub or mock does not count.
 - Add new requests without an issue as ⬜ backlog items. Skip updates for work that is not a listed feature (for example, docs-only fixes).
 
+## Superpowers skills
+
+The project uses [Superpowers](https://github.com/obra/superpowers) for agent workflow skills (brainstorming, plans, TDD, systematic debugging, code review). `.claude/settings.json` enables it for Claude Code; see the README for other agents. Use its skills where they fit, but this file wins on conflicts: humans merge, review follows [REVIEW.md](REVIEW.md), worktrees follow [the development workflow](docs/development.md), and feature status goes in [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md).
+
 ## Non-negotiable boundaries
 
 These describe Hearth's runtime behavior. They do not require a separate product approval prompt for ordinary authorized edits to this repository.
