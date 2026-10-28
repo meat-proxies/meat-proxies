@@ -321,9 +321,11 @@ fn clouds(frame: &mut Frame, palette: &Palette, offset: f32, s: usize) {
 }
 
 /// Server-rack silhouettes scrolling at `offset` units, up to `max_height` units tall.
-fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, salt: u32, s: usize) {
+/// `variant` only makes each parallax layer's buildings differ from the others';
+/// `hash` here is a scenery noise function, not cryptography.
+fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, variant: u32, s: usize) {
     if s >= 3 {
-        return detailed_skyline(frame, offset, color, max_height, salt, s);
+        return detailed_skyline(frame, offset, color, max_height, variant, s);
     }
     let s = s as i32;
     let ground = ground_line(frame.height, s as usize);
@@ -334,12 +336,12 @@ fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, salt: u3
         let world = x + offset_px;
         let (unit, sub) = (world.div_euclid(s), world.rem_euclid(s));
         let block = unit.div_euclid(9) as u32;
-        let tall = (4 + hash(block.wrapping_add(salt)) % max_height) as i32 * s;
+        let tall = (4 + hash(block.wrapping_add(variant)) % max_height) as i32 * s;
         let col = unit.rem_euclid(9);
         if col == 8 {
             continue;
         }
-        let bits = hash(block ^ salt.rotate_left(7));
+        let bits = hash(block ^ variant.rotate_left(7));
         for y in (ground - tall).max(0)..ground {
             let row = (ground - y - 1) / s;
             let window =
@@ -369,7 +371,7 @@ fn detailed_skyline(
     offset: f32,
     color: Rgb,
     max_height: u32,
-    salt: u32,
+    variant: u32,
     s: usize,
 ) {
     let sf = s as f32;
@@ -384,8 +386,8 @@ fn detailed_skyline(
         if local >= 8.0 {
             continue;
         }
-        let tall = (4 + hash(block.wrapping_add(salt)) % max_height) as f32;
-        let bits = hash(block ^ salt.rotate_left(7));
+        let tall = (4 + hash(block.wrapping_add(variant)) % max_height) as f32;
+        let bits = hash(block ^ variant.rotate_left(7));
         let top = ground - (tall * sf) as i32;
         for y in top.max(0)..ground {
             let v = (ground - y) as f32 / sf; // units above the ground
