@@ -26,8 +26,11 @@ A hidden endless runner, left out of `--help` on purpose. Run through a world
 filling up with AI slop, rendered as 24-bit pixel art right in your terminal.
 
 ```sh
-cargo run -p hearth -- --slop
+cargo run --release -p hearth -- --slop
 ```
+
+`--release` is optional but recommended: the debug build plays fine but takes
+a couple of seconds to paint the art at startup.
 
 | Key | Action |
 |---|---|
@@ -45,8 +48,30 @@ to sunset to night as your score climbs. The slop to watch for:
 - **A tower of listicles**: the tallest thing you have to jump
 - **An em-dash swarm**: flies at head height, so duck (shows up once you get going)
 
-Needs an interactive terminal of at least 64×24 with 24-bit color, which most
-modern terminals support. The best score lasts until you quit and is not saved.
+The runner is drawn in a 32-bit-era sprite style (think Street Fighter III or
+King of Fighters): young-adult proportions, about 90 pixels tall at full detail,
+with banded shading, rim lighting, and a 10-frame run cycle. She wears
+Claude-style colors: a cream dress with a terracotta sash, hem, and star brooch,
+terracotta ribbons in her long twin tails, and charcoal tights and boots.
+
+**Graphics.** Full detail needs a terminal that can show real images. It picks
+the best look your terminal can show:
+
+| Terminal | What you get |
+|---|---|
+| Kitty, WezTerm, Ghostty, iTerm2 | Full detail as 24-bit images, at any window size |
+| Windows Terminal (including from WSL) | Full detail as Sixel images: a 252-color palette with dithering, playfield up to 96 columns wide |
+| Other 24-bit color terminals, at least 128×47 | Reduced detail drawn with half-block characters |
+| Other 24-bit color terminals, smaller (minimum 64×24) | The small fallback pixel art |
+
+Text-only terminals cannot show the full-detail art; for the intended look, use
+one of the first two rows. Inside tmux or screen it uses half blocks, since they
+hide which terminal is outside. To force a mode, set `HEARTH_SLOP_GRAPHICS` to
+`kitty`, `iterm`, `sixel`, `blocks`, or `auto` (the default), for example
+`HEARTH_SLOP_GRAPHICS=sixel cargo run --release -p hearth -- --slop`. Frames are
+compressed: Kitty and iTerm2 use about 1.5 MB/s, and Sixel about 4 MB/s.
+
+The best score lasts until you quit and is not saved.
 
 ## Agent skills: Superpowers
 

@@ -11,3 +11,7 @@ publish = false
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# Frame compression runs every frame, so keep it fast in debug builds too.
+[profile.dev.package.miniz_oxide]
+opt-level = 3
