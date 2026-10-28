@@ -21,7 +21,7 @@ The pitch connects triage and consolidated tools to **Magic Wand**, less agent b
 
 ## Architecture
 
-**Rust host: Ratatui, Crossterm, Tokio.** The host owns retained mode state, rendering/event loop, command palette, and terminal handoff. Python/Textual APIs and Python entry-point discovery from the earlier plan are superseded.
+**Rust host: Ratatui, Crossterm, Tokio.** The host owns retained mode state, rendering/event loop, command palette, and terminal handoff.
 
 ```text
 Keyboard / agent pane
@@ -51,7 +51,7 @@ Effective authority is limited by the calling extension's manifest, run restrict
 
 No kubeconfig, Docker socket, raw keys, or credential-store access inside sandboxes. Broker coverage includes indirect mutations such as restart and mirrord agent creation. Credentials are injected only at authenticated tool/egress boundaries restricted to the approved destination. Test injection and redaction; do not assume a CONNECT proxy can inject HTTPS headers.
 
-User/project config paths remain `~/.config/hearth/config.toml` and `./.hearth/config.toml`, with `HEARTH_` environment names. Define and test their merge rules. Planned applicable override ordering: CLI > environment > local-development dotenv > secrets directory > OS keyring > defaults. Secret values never belong in config. Choose Rust libraries and verify custom precedence; Python library behavior no longer applies.
+User/project config paths remain `~/.config/hearth/config.toml` and `./.hearth/config.toml`, with `HEARTH_` environment names. Define and test their merge rules. Planned applicable override ordering: CLI > environment > local-development dotenv > secrets directory > OS keyring > defaults. Secret values never belong in config. Choose Rust libraries and verify custom precedence.
 
 Setup is concise, idempotent, and asks only for missing items. State storage location, validate with a policy-permitted read-only call, never echo secrets, and write a redacted receipt. Explain headless credential-store fallback and verify platform access/prompt behavior before promising it. Keep local secrets out of Git.
 

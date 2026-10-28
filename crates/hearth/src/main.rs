@@ -1,3 +1,5 @@
+mod slop;
+
 use std::{env, process::ExitCode};
 
 const HELP: &str = "Hearth: shared terminal tools for developers and agents\n\nUsage: hearth [--help | --version]\n\nThis is the workspace skeleton. The TUI and tool runtime are not implemented yet.";
@@ -17,6 +19,14 @@ fn main() -> ExitCode {
             println!("hearth {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        // Hidden bonus feature; intentionally left out of --help.
+        [arg] if arg == "--slop" => match slop::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::FAILURE
+            }
+        },
         _ => {
             eprintln!("Unsupported arguments. Run hearth --help for available options.");
             ExitCode::from(2)

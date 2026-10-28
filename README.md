@@ -3,8 +3,9 @@
 One terminal where developers and agents use the same extension tools under the
 same enforced rules. Built by team meat proxies for the hackathon.
 
-The Rust workspace currently provides a help/version executable and an empty core
-crate for issue #3. The TUI, extensions, policy, sandbox, and demo are not implemented.
+The Rust workspace currently provides a help/version executable, an empty core
+crate for issue #3, and a hidden bonus game ([Slop Runner](#bonus-slop-runner)).
+The TUI, extensions, policy, sandbox, and demo are not implemented.
 
 ```sh
 cargo run -p hearth -- --help
@@ -15,9 +16,37 @@ cargo run -p hearth -- --help
 Install the pinned Rust toolchain with rustup and Python 3.11 or later.
 See [development and review](docs/development.md), [agent instructions](AGENTS.md),
 [review priorities](REVIEW.md), and [the product plan](docs/product-plan.md).
-[GitHub issues](https://github.com/meat-proxies/meat-proxies/issues) define acceptance
-and track progress.
-Feature status lives in [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md).
+[GitHub issues](https://github.com/meat-proxies/meat-proxies/issues) define acceptance;
+[FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) tracks which features are completed, in
+progress, and in the backlog.
+
+## Bonus: Slop Runner
+
+A hidden endless runner, left out of `--help` on purpose. Run through a world
+filling up with AI slop, rendered as 24-bit pixel art right in your terminal.
+
+```sh
+cargo run -p hearth -- --slop
+```
+
+| Key | Action |
+|---|---|
+| `space`, `↑`, `w`, `k`, `Enter` | Jump; on the game-over screen, run again |
+| `↓`, `s`, `j` | Duck (hold to keep ducking); in the air, drop faster |
+| `p` | Pause or resume |
+| `q`, `Esc`, `Ctrl-C` | Quit |
+
+Jump over ground slop, duck under the flying em-dash swarm, and grab gold sparks
+for 50 points each. The run speeds up as you go, and the sky turns from afternoon
+to sunset to night as your score climbs. The slop to watch for:
+
+- **A puddle of lukewarm filler content**: wobbling beige goo
+- **A six-fingered hand**: reaching up out of the ground
+- **A tower of listicles**: the tallest thing you have to jump
+- **An em-dash swarm**: flies at head height, so duck (shows up once you get going)
+
+Needs an interactive terminal of at least 64×24 with 24-bit color, which most
+modern terminals support. The best score lasts until you quit and is not saved.
 
 ## Agent skills: Superpowers
 
@@ -26,9 +55,12 @@ workflow skills for coding agents (brainstorming, writing plans, test-driven
 development, systematic debugging, code review).
 
 - **Claude Code:** the repo's `.claude/settings.json` registers the plugin, so
-  Claude Code offers to install it when you trust the folder. To install it by
-  hand, run `/plugin marketplace add obra/superpowers-marketplace` and then
-  `/plugin install superpowers@superpowers-marketplace`.
+  Claude Code should offer to install it when you trust the folder. To install it
+  by hand, run `/plugin marketplace add obra/superpowers-marketplace` and then
+  `/plugin install superpowers@superpowers-marketplace` inside Claude Code. From a
+  shell, the same steps are `claude plugin marketplace add obra/superpowers-marketplace`
+  and `claude plugin install superpowers@superpowers-marketplace --scope project`.
+  Check it with `claude plugin list`.
 - **Codex CLI:** run `/plugins`, search for "superpowers", and choose Install Plugin.
 - **OpenCode:** tell it "Fetch and follow instructions from
   https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.opencode/INSTALL.md".
