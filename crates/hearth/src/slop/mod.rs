@@ -26,7 +26,11 @@ const MAX_WORLD_H: usize = 64;
 /// World height the detailed art needs to fit a full jump.
 const MIN_WORLD_H: usize = 46;
 /// Largest image, in pixels, sent per frame before dropping to a lower scale.
-const IMAGE_PIXEL_BUDGET: usize = 60_000;
+const IMAGE_PIXEL_BUDGET: usize = 120_000;
+/// Art pixels per world unit at full detail; the runner is 90 pixels tall.
+const MAX_IMAGE_SCALE: usize = 5;
+/// Widest Sixel playfield, in world units (and terminal columns).
+const SIXEL_MAX_W: usize = 96;
 
 /// Leaves raw mode and the alternate screen however the game exits.
 struct TerminalGuard {
@@ -71,14 +75,28 @@ impl Layout {
                 // detailed art fits any size. Each cell is one unit wide and
                 // two tall.
                 let (world_w, world_h) = (cols.min(MAX_WORLD_W), (rows_free * 2).min(MAX_WORLD_H));
-                let scale = if world_w * world_h * 9 <= IMAGE_PIXEL_BUDGET {
-                    3
-                } else {
-                    2
-                };
+                // As much detail as the per-frame pixel budget allows.
+                let scale = (2..=MAX_IMAGE_SCALE)
+                    .rev()
+                    .find(|s| world_w * world_h * s * s <= IMAGE_PIXEL_BUDGET)
+                    .unwrap_or(2);
                 Self {
                     graphics,
                     scale,
+                    world_w,
+                    world_h,
+                    cols: world_w as u16,
+                    canvas_rows: (world_h / 2) as u16,
+                }
+            }
+            Graphics::Sixel => {
+                // Windows Terminal maps Sixel pixels onto a 10 x 20 virtual
+                // cell, so draw at scale 5 and double each pixel. Sixel is
+                // heavy to parse, so the playfield is capped in size.
+                let (world_w, world_h) = (cols.min(SIXEL_MAX_W), (rows_free * 2).min(MIN_WORLD_H));
+                Self {
+                    graphics,
+                    scale: MAX_IMAGE_SCALE,
                     world_w,
                     world_h,
                     cols: world_w as u16,
@@ -128,6 +146,10 @@ impl Layout {
 struct ArtCache(Vec<Option<ArtSet>>);
 
 impl ArtCache {
+    fn has(&self, scale: usize) -> bool {
+        self.0.get(scale).is_some_and(Option::is_some)
+    }
+
     fn get(&mut self, scale: usize) -> &ArtSet {
         if self.0.len() <= scale {
             self.0.resize_with(scale + 1, || None);
@@ -233,12 +255,23 @@ fn play(out: &mut impl Write, graphics: Graphics) -> io::Result<()> {
         redraw |= over != was_over;
         was_over = over;
         let still = paused || over;
-        // Still scenes only redraw after input; images go out at 30 fps.
-        if (still || (graphics != Graphics::Blocks && frames % 2 == 1)) && !redraw {
+        // Still scenes only redraw after input. Images go out at 30 fps, and
+        // Sixel, the slowest for terminals to parse, at 20.
+        let every = match graphics {
+            Graphics::Blocks => 1,
+            Graphics::Kitty | Graphics::Iterm => 2,
+            Graphics::Sixel => 3,
+        };
+        if (still || !frames.is_multiple_of(every)) && !redraw {
             continue;
         }
         redraw = false;
         let (w, h) = fit.frame_size();
+        if !art.has(fit.scale) {
+            // Painting the detailed art takes a moment, longest in debug builds.
+            write!(out, "\x1b[0m\x1b[1;1H\x1b[2KDrawing Slop Runner...")?;
+            out.flush()?;
+        }
         let frame = render::draw(&game, art.get(fit.scale), w, h);
         let mut text = match fit.graphics {
             Graphics::Blocks => frame.to_ansi(previous.as_ref()),
@@ -247,6 +280,7 @@ fn play(out: &mut impl Write, graphics: Graphics) -> io::Result<()> {
                 graphics::kitty(&frame, fit.cols, fit.canvas_rows, image_id)
             }
             Graphics::Iterm => graphics::iterm(&frame, fit.cols, fit.canvas_rows),
+            Graphics::Sixel => graphics::sixel(&frame, graphics::SIXEL_CELL.0 / fit.scale),
         };
         text.push_str(&hud(&game, paused, fit));
         out.write_all(text.as_bytes())?;
@@ -332,9 +366,13 @@ mod tests {
         let small = Layout::fit(80, 24, Graphics::Kitty).expect("fits");
         assert_eq!(
             (small.scale, small.world_w, small.world_h, small.canvas_rows),
-            (3, 80, 46, 23)
+            (5, 80, 46, 23)
         );
-        assert_eq!(small.frame_size(), (240, 138));
+        assert_eq!(small.frame_size(), (400, 230));
+        assert_eq!(
+            Layout::fit(120, 30, Graphics::Kitty).map(|l| l.scale),
+            Some(4)
+        );
         let big = Layout::fit(220, 60, Graphics::Iterm).expect("fits");
         assert_eq!(big.scale, 2);
         let (w, h) = big.frame_size();
@@ -342,10 +380,29 @@ mod tests {
     }
 
     #[test]
+    fn sixel_fills_windows_terminal_cells_exactly() {
+        let fit = Layout::fit(120, 30, Graphics::Sixel).expect("fits");
+        assert_eq!(
+            (fit.world_w, fit.world_h, fit.cols, fit.canvas_rows),
+            (SIXEL_MAX_W, MIN_WORLD_H, 96, 23)
+        );
+        let (w, h) = fit.frame_size();
+        let up = graphics::SIXEL_CELL.0 / fit.scale;
+        assert_eq!(
+            (w * up, h * up),
+            (
+                usize::from(fit.cols) * 10,
+                usize::from(fit.canvas_rows) * 20
+            )
+        );
+    }
+
+    #[test]
     fn art_cache_bakes_each_scale_once() {
         let mut cache = ArtCache::default();
         assert_eq!(cache.get(2).scale, 2);
         assert_eq!(cache.get(1).scale, 1);
+        assert!(cache.has(2) && !cache.has(3));
         let first: *const ArtSet = cache.get(2);
         assert!(std::ptr::eq(first, cache.get(2)));
     }

@@ -221,8 +221,15 @@ impl Paint {
 /// Deep plum the outlines lean toward, so they read as colored "selout" lines
 /// rather than flat black.
 const INK: Rgb = Rgb(44, 22, 34);
+/// Cool bounce light from the sky behind the figure.
+const RIM: Rgb = Rgb(176, 200, 255);
+/// Tone steps on each side of the base color.
+const BANDS: f32 = 3.0;
 const LIGHT_DIR: V2 = V2(0.45, -0.89);
-const SUPERSAMPLE: usize = 4;
+/// Anti-aliasing samples per pixel side; fewer are needed once pixels are small.
+fn supersample(scale: usize) -> usize {
+    if scale >= 4 { 3 } else { 4 }
+}
 
 /// Straight-alpha RGBA pixels.
 #[derive(Clone, Debug, PartialEq)]
@@ -240,6 +247,7 @@ impl Bitmap {
 
 pub struct Painter {
     scale: usize,
+    ss: usize,
     w: usize,
     h: usize,
     /// Premultiplied RGBA at supersampled resolution.
@@ -249,9 +257,11 @@ pub struct Painter {
 impl Painter {
     /// A canvas `w` x `h` units big, drawn at `scale` pixels per unit.
     pub fn new(w: usize, h: usize, scale: usize) -> Self {
-        let (sw, sh) = (w * scale * SUPERSAMPLE, h * scale * SUPERSAMPLE);
+        let ss = supersample(scale);
+        let (sw, sh) = (w * scale * ss, h * scale * ss);
         Self {
             scale,
+            ss,
             w: sw,
             h: sh,
             acc: vec![[0.0; 4]; sw * sh],
@@ -259,7 +269,7 @@ impl Painter {
     }
 
     pub fn draw(&mut self, shape: &Shape, paint: Paint) {
-        let units_per_sample = 1.0 / (self.scale * SUPERSAMPLE) as f32;
+        let units_per_sample = 1.0 / (self.scale * self.ss) as f32;
         // One output pixel wide, whatever the scale.
         let outline = 1.0 / self.scale as f32;
         let reach = match paint {
@@ -294,15 +304,16 @@ impl Painter {
 
     /// Averages each 4x4 block of samples into one anti-aliased pixel.
     pub fn finish(self) -> Bitmap {
-        let (w, h) = (self.w / SUPERSAMPLE, self.h / SUPERSAMPLE);
+        let ss = self.ss;
+        let (w, h) = (self.w / ss, self.h / ss);
         let mut px = Vec::with_capacity(w * h);
-        let n = (SUPERSAMPLE * SUPERSAMPLE) as f32;
+        let n = (ss * ss) as f32;
         for y in 0..h {
             for x in 0..w {
                 let mut sum = [0.0f32; 4];
-                for sy in 0..SUPERSAMPLE {
-                    for sx in 0..SUPERSAMPLE {
-                        let s = self.acc[(y * SUPERSAMPLE + sy) * self.w + x * SUPERSAMPLE + sx];
+                for sy in 0..ss {
+                    for sx in 0..ss {
+                        let s = self.acc[(y * ss + sy) * self.w + x * ss + sx];
                         for i in 0..4 {
                             sum[i] += s[i];
                         }
@@ -340,18 +351,28 @@ fn shade(shape: &Shape, paint: Paint, p: V2, d: f32, outline: f32) -> Option<(Rg
             dark,
             outline: has_outline,
         } => {
+            let n = shape.normal(p);
+            let facing = n.dot(LIGHT_DIR);
             if d >= 0.0 {
-                return (has_outline && d < outline).then(|| (dark.mix(INK, 0.6), 1.0));
+                // Selective outlines: softer on the lit side, deep on the shadow side.
+                let ink = dark.mix(INK, 0.45 + 0.4 * (-facing).max(0.0));
+                return (has_outline && d < outline).then_some((ink, 1.0));
             }
-            // Strong shading near the rim, flat color in the middle: a rounded,
-            // painted look rather than hard bands.
-            let rim = 1.0 - (-d / 1.1).clamp(0.0, 1.0);
-            let lit = shape.normal(p).dot(LIGHT_DIR) * (0.35 + 0.65 * rim);
-            let color = if lit >= 0.0 {
+            // Shade strongly near the edge and stay flat inside, then snap to
+            // a few clean tone bands the way hand-shaded sprites are lit.
+            let edge = 1.0 - (-d / 0.7).clamp(0.0, 1.0);
+            let lit = facing * (0.3 + 0.7 * edge);
+            let lit = (lit * BANDS).round() / BANDS;
+            let mut color = if lit >= 0.0 {
                 base.mix(light, lit)
             } else {
                 base.mix(dark, -lit)
             };
+            // A cool rim light on edges facing away from the key light.
+            let back = (-facing - 0.35).max(0.0);
+            if back > 0.0 && -d < 0.25 {
+                color = color.mix(RIM, (back * 0.9).min(0.4));
+            }
             Some((color, 1.0))
         }
     }

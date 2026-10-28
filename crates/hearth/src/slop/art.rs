@@ -11,7 +11,7 @@ use super::sprites::{self, Sprite};
 
 /// Distance the runner covers per full stride, in world units.
 const STRIDE: f32 = 18.0;
-const RUN_FRAMES: usize = 8;
+const RUN_FRAMES: usize = 10;
 
 pub struct ArtSet {
     pub scale: usize,
@@ -143,25 +143,32 @@ fn cream() -> Paint {
 fn terra() -> Paint {
     Paint::shaded(TERRA, TERRA_LIGHT, TERRA_DARK)
 }
-fn charcoal() -> Paint {
-    Paint::shaded(CHARCOAL, CHARCOAL_LIGHT, CHARCOAL_DARK)
-}
 
-/// Joint angles for one frame. Leg and arm angles are radians from straight
-/// down, positive toward the front (+x); bends fold the lower limb backward.
+/// Joint angles for one frame, in radians from straight down, positive toward
+/// the front (+x). A limb's lower half turns by `-bend`: positive bends fold
+/// knees backward, negative bends fold elbows forward.
 struct Rig {
+    hip_x: f32,
     lean: f32,
+    /// Far leg, then near leg.
     legs: [(f32, f32); 2],
+    /// Far arm, then near arm.
     arms: [(f32, f32); 2],
     /// How far the twin tails stream back and up (0 hanging, 1 flying).
     tail_lift: f32,
     tail_sway: f32,
-    hem_flare: f32,
+    skirt_flare: f32,
 }
 
-const THIGH: f32 = 2.5;
-const SHIN: f32 = 2.4;
-const FOOT_R: f32 = 0.62;
+// Young-adult proportions in world units: about six heads tall, with legs
+// making up half the height.
+const THIGH: f32 = 4.1;
+const SHIN: f32 = 3.9;
+const TORSO: f32 = 4.4;
+const UPPER_ARM: f32 = 2.25;
+const FOREARM: f32 = 2.05;
+/// Ankle to the bottom of the boot sole.
+const FOOT_DROP: f32 = 0.62;
 
 fn rig(pose: Pose, phase: f32) -> Rig {
     let t = phase * TAU;
@@ -169,46 +176,56 @@ fn rig(pose: Pose, phase: f32) -> Rig {
         Pose::Run => {
             let leg = |o: f32| {
                 let s = t + o;
-                (0.78 * s.sin(), 0.25 + 1.15 * s.cos().max(0.0))
+                (0.74 * s.sin(), 0.25 + 1.55 * s.cos().max(0.0).powf(0.8))
             };
-            let arm = |o: f32| (-0.75 * (t + o).sin(), -1.2);
+            let arm = |o: f32| (-0.8 * (t + o).sin(), -1.45);
             Rig {
-                lean: 0.14,
+                hip_x: 6.3,
+                lean: 0.2,
                 legs: [leg(PI), leg(0.0)],
                 arms: [arm(0.0), arm(PI)],
-                tail_lift: 0.45,
+                tail_lift: 0.7,
                 tail_sway: (2.0 * t).sin(),
-                hem_flare: 0.5 + 0.3 * (2.0 * t).cos(),
+                skirt_flare: 0.55 + 0.35 * (2.0 * t).cos(),
             }
         }
         Pose::Jump => Rig {
-            lean: 0.05,
-            legs: [(-0.5, 1.7), (1.0, 1.8)],
-            arms: [(-2.2, -0.4), (1.3, 0.5)],
+            hip_x: 6.4,
+            lean: 0.1,
+            legs: [(-0.25, 1.9), (1.25, 2.1)],
+            arms: [(-1.9, -0.5), (1.15, -1.25)],
             tail_lift: 1.0,
-            tail_sway: 0.3,
-            hem_flare: 1.0,
+            tail_sway: 0.4,
+            skirt_flare: 1.0,
         },
         Pose::Duck => {
-            let s = (t).sin() * 0.25;
+            let s = t.sin() * 0.18;
             Rig {
-                lean: 0.8,
-                legs: [(0.6 - s, 2.1), (1.1 + s, 2.3)],
-                arms: [(1.2 + s, -0.9), (1.6 - s, -0.9)],
+                hip_x: 5.0,
+                lean: 1.08,
+                legs: [(0.55 + s, 2.45), (1.45 - s, 2.75)],
+                arms: [(0.95 + s, 0.35), (1.2 - s, 0.25)],
                 tail_lift: 1.0,
-                tail_sway: (2.0 * t).sin() * 0.5,
-                hem_flare: 0.8,
+                tail_sway: (2.0 * t).sin() * 0.6,
+                skirt_flare: 0.9,
             }
         }
         Pose::Slopped => Rig {
-            lean: 0.0,
-            legs: [(-0.15, 0.1), (0.2, 0.1)],
-            arms: [(-0.5, -0.2), (0.6, -0.2)],
+            hip_x: 6.8,
+            lean: -0.04,
+            legs: [(-0.12, 0.15), (0.16, 0.2)],
+            arms: [(-0.3, -0.25), (0.35, -0.45)],
             tail_lift: 0.0,
             tail_sway: 0.0,
-            hem_flare: 0.0,
+            skirt_flare: 0.0,
         },
     }
+}
+
+/// Knee and ankle offsets from the hip for a leg.
+fn leg_joints((a, bend): (f32, f32)) -> (V2, V2) {
+    let knee = V2::down_at(a) * THIGH;
+    (knee, knee + V2::down_at(a - bend) * SHIN)
 }
 
 /// Paints the runner. Sizes match the small sprites so hitboxes agree.
@@ -222,326 +239,434 @@ fn girl(pose: Pose, phase: f32, scale: usize) -> Bitmap {
     let (w, h) = (sprites::width(sprite), sprites::height(sprite));
     let r = rig(pose, phase);
     let up = V2(r.lean.sin(), -r.lean.cos());
+    let down = up * -1.0;
     let fwd = V2(r.lean.cos(), r.lean.sin());
 
-    // Place the hip so the lowest foot rests on the sprite's bottom edge.
-    let foot = |(a, bend): (f32, f32)| {
-        let knee = V2::down_at(a) * THIGH;
-        (knee, knee + V2::down_at(a - bend) * SHIN)
-    };
+    // Rest the lowest boot on the sprite's bottom edge.
     let lowest = r
         .legs
         .iter()
-        .map(|&leg| foot(leg).1.1)
+        .map(|&leg| leg_joints(leg).1.1)
         .fold(f32::MIN, f32::max);
-    let hip = V2(6.6, h as f32 - FOOT_R - 0.15 - lowest);
-
-    let waist = hip + up * 1.7;
-    let chest = hip + up * 3.1;
-    let neck = hip + up * 4.1;
-    let head = hip + up * 6.7 + fwd * 0.35;
-    let shoulder = chest + up * 0.2 + fwd * 0.2;
+    let hip = V2(r.hip_x, h as f32 - 0.05 - FOOT_DROP - lowest);
+    let waist = hip + up * 1.45;
+    let chest = hip + up * 2.85;
+    let neck = hip + up * TORSO;
+    let shoulder = neck + down * 0.5 + fwd * -0.1;
+    // The head stays nearly upright even when the body leans.
+    let head = neck + up * 0.5 + V2(0.0, -1.15) + V2(0.3, 0.0);
 
     let mut p = Painter::new(w, h, scale);
 
-    // Twin tails, far one first. Their ribbons go on after the head.
-    let mut ribbons = Vec::with_capacity(2);
-    let tail = |side: f32| {
-        // The far tail is tied high on the crown and streams back; the near
-        // one is tied behind the ear and hangs lower, so both read clearly.
-        let (root, path, lift) = if side < 0.0 {
-            (
-                head + V2(-0.9, -2.9),
-                [(-1.7, 1.1), (-3.2, 3.2), (-3.8, 5.8)],
-                r.tail_lift * 0.85,
-            )
-        } else {
-            (
-                head + V2(-2.4, -0.9),
-                [(-1.0, 2.0), (-1.4, 4.8), (-1.0, 7.6)],
-                r.tail_lift,
-            )
-        };
-        let sway = r.tail_sway * (0.4 + side * 0.1);
-        let pts = [
-            root,
-            root + V2(path[0].0 - lift * 1.0, path[0].1 - lift * 1.1 + sway * 0.3),
-            root + V2(path[1].0 - lift * 2.6, path[1].1 - lift * 2.6 + sway),
-            root + V2(path[2].0 - lift * 4.2, path[2].1 - lift * 4.0 + sway * 1.6),
-        ];
-        (root, pts)
-    };
-    for side in [-1.0, 1.0] {
-        let (root, pts) = tail(side);
-        let radii = [0.85, 1.1, 0.85, 0.25];
-        let paint = if side < 0.0 {
-            Paint::shaded(HAIR_DARK.mix(HAIR, 0.5), HAIR, HAIR_DARK)
-        } else {
-            hair()
-        };
-        for i in 0..3 {
-            p.draw(
-                &Shape::Capsule(pts[i], pts[i + 1], radii[i], radii[i + 1]),
-                paint,
-            );
-        }
-        // Highlight streak down the tail.
-        p.draw(
-            &Shape::Capsule(pts[1] + V2(0.3, -0.2), pts[2] + V2(0.25, -0.1), 0.22, 0.12),
-            Paint::Flat(HAIR_LIGHT, 0.6),
-        );
-        ribbons.push(root + V2(0.15, 0.05));
-    }
+    let far_tail = twin_tail(head + V2(-0.5, -1.4), &r, -1.0);
+    let near_tail = twin_tail(head + V2(-1.15, -0.65), &r, 1.0);
+    draw_tail(
+        &mut p,
+        &far_tail,
+        Paint::shaded(HAIR_DARK.mix(HAIR, 0.55), HAIR, HAIR_DARK),
+    );
 
     // Far arm and both legs sit behind the dress.
-    limb(
-        &mut p,
-        shoulder - fwd * 0.3,
-        r.arms[0],
-        1.55,
-        1.45,
-        skin(),
-        0.42,
-    );
-    for &leg in &r.legs {
-        let (knee, ankle) = foot(leg);
-        let (knee, ankle) = (hip + knee, hip + ankle);
-        p.draw(&Shape::Capsule(hip, knee, 0.68, 0.55), charcoal());
-        p.draw(&Shape::Capsule(knee, ankle, 0.55, 0.5), charcoal());
-        // Boot with a terracotta sole.
-        let toe = ankle + V2(0.85, 0.15);
-        p.draw(
-            &Shape::Capsule(ankle + V2(-0.1, -0.35), toe, 0.62, 0.5),
-            Paint::shaded(CHARCOAL_DARK, CHARCOAL_LIGHT, CHARCOAL_DARK),
-        );
-        p.draw(
-            &Shape::Capsule(ankle + V2(-0.3, 0.42), toe + V2(0.2, 0.42), 0.18, 0.18),
-            Paint::Flat(TERRA, 1.0),
+    arm(&mut p, shoulder + fwd * -0.25, r.arms[0], true);
+    for (i, &leg) in r.legs.iter().enumerate() {
+        let (knee, ankle) = leg_joints(leg);
+        let tint = if i == 0 { 0.82 } else { 1.0 };
+        draw_leg(
+            &mut p,
+            hip + fwd * (0.15 * i as f32 - 0.1),
+            hip + knee,
+            hip + ankle,
+            tint,
         );
     }
 
-    // Dress: fitted bodice, flared skirt, terracotta sash and hem.
-    let hem_y = 1.4 + 0.2 * r.hem_flare;
-    let back = -(2.5 + 0.9 * r.hem_flare);
-    let front = 2.3 + 0.3 * r.hem_flare;
-    let down = up * -1.0;
-    // The skirt mostly hangs with gravity rather than tilting with the body.
-    let skirt_lean = r.lean * 0.25;
+    // Dress: shaped bodice, flared skirt hanging with gravity.
+    let skirt_lean = r.lean * 0.3;
     let sfwd = V2(skirt_lean.cos(), skirt_lean.sin());
     let sdown = V2(-skirt_lean.sin(), skirt_lean.cos());
-    let dress = Shape::Poly(vec![
-        neck + fwd * -1.05 + down * 0.1,
-        neck + fwd * 1.05 + down * 0.1,
-        waist + fwd * 1.0,
-        hip + sfwd * 1.6 + sdown * (hem_y * 0.6),
-        hip + sfwd * front + sdown * hem_y,
-        hip + sfwd * 0.2 + sdown * (hem_y + 0.25),
-        hip + sfwd * back + sdown * (hem_y - 0.15),
-        hip + sfwd * -1.5 + sdown * 0.2,
-        waist + fwd * -1.0,
+    let f = r.skirt_flare;
+    let hem = 2.15 + 0.15 * f;
+    let bodice = Shape::Capsule(waist, neck + down * 0.55, 0.6, 0.72)
+        .blend(Shape::Circle(chest + fwd * 0.42 + up * 0.15, 0.56), 0.35)
+        .blend(Shape::Capsule(hip, waist, 0.82, 0.6), 0.3);
+    let skirt = Shape::Poly(vec![
+        waist + fwd * 0.62,
+        hip + sfwd * 1.05 + sdown * 0.45,
+        hip + sfwd * (1.55 + 0.35 * f) + sdown * hem,
+        hip + sfwd * 0.35 + sdown * (hem + 0.3),
+        hip + sfwd * (-1.0 - 0.3 * f) + sdown * (hem + 0.15),
+        hip + sfwd * (-1.75 - 0.9 * f) + sdown * (hem - 0.25),
+        hip + sfwd * -0.95 + sdown * 0.3,
+        waist + fwd * -0.62,
     ]);
+    let dress = bodice.blend(skirt, 0.25);
     p.draw(&dress, cream());
-    // Inside a band means below its top edge and above its bottom edge.
-    let band = |top: V2, bottom: V2| Shape::HalfPlane(top, up).and(Shape::HalfPlane(bottom, down));
-    p.draw(
-        &dress.clone().and(band(waist + up * 0.5, waist - up * 0.5)),
-        terra().no_outline(),
-    );
-    let hem_line = hip + sdown * (hem_y - 0.85);
+    // Soft fold shadows down the skirt.
+    for (x, len, alpha) in [(-0.9, 1.6, 0.55), (0.1, 1.9, 0.45), (0.9, 1.4, 0.4)] {
+        let a = hip + sfwd * x + sdown * 0.6;
+        p.draw(
+            &Shape::Capsule(a, a + sdown * len + sfwd * (x * 0.35), 0.1, 0.16),
+            Paint::Flat(CREAM_DARK, alpha),
+        );
+    }
+    let hem_line = hip + sdown * (hem - 0.42);
     let sup = sdown * -1.0;
     p.draw(
         &dress.clone().and(Shape::HalfPlane(hem_line, sup)),
         terra().no_outline(),
     );
-    let trim =
-        Shape::HalfPlane(hem_line, sup).and(Shape::HalfPlane(hem_line + sdown * 0.18, sdown));
-    p.draw(&dress.clone().and(trim), Paint::Flat(CREAM_LIGHT, 0.9));
-    // Pleat lines and the sash bow.
-    for k in [-1.0, 0.4] {
-        let a = waist + down * 0.5 + fwd * k;
-        p.draw(
-            &Shape::Capsule(a, a + down * 2.0 + fwd * (k * 0.6), 0.09, 0.09),
-            Paint::Flat(CREAM_DARK, 0.8),
-        );
+    let trim = Shape::HalfPlane(hem_line, sup).and(Shape::HalfPlane(hem_line + sdown * 0.1, sdown));
+    p.draw(&dress.clone().and(trim), Paint::Flat(CREAM_LIGHT, 0.95));
+    // Terracotta sash with a bow and streamers at the back.
+    let sash =
+        Shape::HalfPlane(waist + up * 0.3, up).and(Shape::HalfPlane(waist + down * 0.3, down));
+    p.draw(&dress.clone().and(sash), terra().no_outline());
+    let bow = waist + fwd * -0.7;
+    for (dx, dy) in [(-0.9, 1.7 + 0.4 * f), (-1.5 - 0.5 * f, 1.3 + 0.2 * f)] {
+        p.draw(&Shape::Capsule(bow, bow + V2(dx, dy), 0.16, 0.1), terra());
     }
-    let bow = waist + fwd * -1.1;
     p.draw(
-        &Shape::Poly(vec![bow, bow + V2(-1.2, -0.6), bow + V2(-1.1, 0.7)]),
+        &Shape::Poly(vec![bow, bow + V2(-0.85, -0.5), bow + V2(-0.8, 0.45)]),
         terra(),
     );
     p.draw(
-        &Shape::Circle(bow, 0.35),
+        &Shape::Circle(bow, 0.2),
         Paint::shaded(TERRA_DARK, TERRA, TERRA_DARK),
     );
-    sleeve(&mut p, shoulder - fwd * 0.3, r.arms[0].0);
+    // Collar piping and a small four-point star brooch.
+    p.draw(
+        &Shape::Capsule(
+            neck + fwd * -0.45 + down * 0.35,
+            neck + fwd * 0.5 + down * 0.5,
+            0.09,
+            0.09,
+        ),
+        Paint::Flat(TERRA, 1.0),
+    );
+    star(&mut p, neck + fwd * 0.42 + down * 0.85, 0.24);
+
+    draw_tail(&mut p, &near_tail, hair());
 
     // Neck and head.
     p.draw(
-        &Shape::Capsule(neck + down * 0.2, neck + up * 1.0, 0.55, 0.55),
+        &Shape::Capsule(neck + down * 0.2, head + V2(0.05, 0.95), 0.27, 0.25),
         skin(),
     );
-    p.draw(&Shape::Circle(head + V2(-0.35, -0.2), 3.35), hair());
-    // Only the front of the face shows; the back of the head is hair.
-    let face = Shape::Circle(head + V2(0.35, 0.3), 2.95)
-        .and(Shape::HalfPlane(head + V2(0.0, -1.0), V2(0.0, -1.0)))
-        .and(Shape::HalfPlane(head + V2(-1.1, 0.0), V2(-1.0, 0.0)));
+    p.draw(&Shape::Ellipse(head + V2(-0.22, -0.12), 1.6, 1.65), hair());
+    let jaw = Shape::Poly(vec![
+        head + V2(-0.3, 0.8),
+        head + V2(1.25, 0.45),
+        head + V2(1.08, 1.15),
+        head + V2(0.55, 1.58),
+        head + V2(-0.25, 1.35),
+    ]);
+    let face = Shape::Ellipse(head + V2(0.3, 0.02), 1.12, 1.3)
+        .blend(jaw, 0.25)
+        .and(Shape::HalfPlane(head + V2(-0.6, 0.0), V2(-1.0, 0.0)));
     p.draw(&face, skin().no_outline());
-    // Bangs sweep forward over the brow.
+    // Shadow under the jaw onto the neck.
+    p.draw(
+        &Shape::Ellipse(head + V2(0.1, 1.45), 0.45, 0.14),
+        Paint::Flat(SKIN_DARK, 0.6),
+    );
+
+    if pose == Pose::Slopped {
+        for c in [head + V2(0.62, 0.15), head + V2(0.03, 0.15)] {
+            p.draw(
+                &Shape::Capsule(c + V2(-0.22, 0.02), c + V2(0.2, 0.08), 0.06, 0.05),
+                Paint::Flat(EYE, 1.0),
+            );
+        }
+        p.draw(
+            &Shape::Capsule(head + V2(0.72, 1.0), head + V2(0.98, 0.94), 0.06, 0.05),
+            Paint::Flat(Rgb(150, 70, 70), 1.0),
+        );
+    } else {
+        eye(&mut p, head + V2(0.72, 0.15), 1.0);
+        eye(&mut p, head + V2(0.05, 0.15), 0.82);
+        // Lips, a little color.
+        p.draw(
+            &Shape::Capsule(head + V2(0.86, 1.05), head + V2(1.08, 1.02), 0.06, 0.05),
+            Paint::Flat(Rgb(196, 98, 96), 1.0),
+        );
+        p.draw(
+            &Shape::Circle(head + V2(0.96, 1.11), 0.04),
+            Paint::Flat(SKIN_LIGHT, 0.8),
+        );
+    }
+    // Nose shading on the profile edge, and blush.
+    p.draw(
+        &Shape::Capsule(head + V2(1.2, 0.45), head + V2(1.24, 0.68), 0.04, 0.05),
+        Paint::Flat(SKIN_DARK, 0.85),
+    );
+    p.draw(
+        &Shape::Ellipse(head + V2(0.65, 0.62), 0.32, 0.12),
+        Paint::Flat(BLUSH, 0.4),
+    );
+
+    // Bangs sweep across the brow; side locks frame the face.
     for (a, b, ra) in [
-        (V2(-0.4, -2.9), V2(1.3, -0.4), 0.75),
-        (V2(0.8, -2.9), V2(2.4, -0.5), 0.6),
-        (V2(1.8, -2.4), V2(3.0, -0.6), 0.45),
-        (V2(-1.0, -1.0), V2(-0.6, 2.2), 0.7),
+        (V2(-0.3, -1.55), V2(0.5, -0.3), 0.38),
+        (V2(0.15, -1.6), V2(0.95, -0.45), 0.32),
+        (V2(0.55, -1.45), V2(1.3, -0.6), 0.24),
+        (V2(-0.55, -1.3), V2(0.05, -0.25), 0.3),
     ] {
         p.draw(
-            &Shape::Capsule(head + a, head + b, ra, 0.18),
+            &Shape::Capsule(head + a, head + b, ra, 0.05),
             hair().no_outline(),
         );
     }
-    // A glossy highlight arcing across the crown.
     for (a, b) in [
-        (V2(-2.4, -1.5), V2(-1.1, -2.6)),
-        (V2(-0.7, -2.85), V2(0.6, -2.8)),
+        (V2(-0.6, -0.8), V2(-0.5, 1.6)),
+        (V2(-0.3, -1.0), V2(-0.15, 1.1)),
+    ] {
+        p.draw(&Shape::Capsule(head + a, head + b, 0.26, 0.06), hair());
+    }
+    // Glossy highlight bands across the crown.
+    for (a, b) in [
+        (V2(-1.35, -0.6), V2(-0.65, -1.4)),
+        (V2(-0.35, -1.55), V2(0.45, -1.42)),
     ] {
         p.draw(
-            &Shape::Capsule(head + a, head + b, 0.26, 0.2),
-            Paint::Flat(HAIR_LIGHT, 0.75),
+            &Shape::Capsule(head + a, head + b, 0.12, 0.08),
+            Paint::Flat(HAIR_LIGHT, 0.8),
         );
     }
-    for &knot in &ribbons {
-        ribbon(&mut p, knot);
-    }
-
-    if pose == Pose::Slopped {
-        // Squeezed-shut eyes and a wobbly frown.
-        for (x, s) in [(1.75, 1.0), (0.1, 0.85)] {
-            let e = head + V2(x, 0.55);
-            p.draw(
-                &Shape::Capsule(e + V2(-0.4 * s, -0.3), e + V2(0.3 * s, 0.0), 0.13, 0.13),
-                Paint::Flat(EYE, 1.0),
-            );
-            p.draw(
-                &Shape::Capsule(e + V2(0.3 * s, 0.0), e + V2(-0.4 * s, 0.3), 0.13, 0.13),
-                Paint::Flat(EYE, 1.0),
-            );
-        }
-        p.draw(
-            &Shape::Capsule(head + V2(1.9, 1.9), head + V2(2.6, 1.75), 0.12, 0.12),
-            Paint::Flat(TERRA_DARK, 1.0),
-        );
-    } else {
-        eye(&mut p, head + V2(1.75, 0.45), 1.0);
-        eye(&mut p, head + V2(0.1, 0.5), 0.8);
-        p.draw(
-            &Shape::Capsule(head + V2(2.35, 1.85), head + V2(2.7, 1.75), 0.12, 0.1),
-            Paint::Flat(TERRA_DARK, 1.0),
-        );
-    }
-    p.draw(
-        &Shape::Ellipse(head + V2(1.7, 1.55), 0.6, 0.28),
-        Paint::Flat(BLUSH, 0.55),
-    );
+    ribbon(&mut p, far_tail[0]);
+    ribbon(&mut p, near_tail[0]);
 
     // Near arm on top.
-    limb(&mut p, shoulder, r.arms[1], 1.55, 1.45, skin(), 0.45);
-    sleeve(&mut p, shoulder + fwd * 0.1, r.arms[1].0);
+    arm(&mut p, shoulder + fwd * 0.05, r.arms[1], false);
 
     if pose == Pose::Slopped {
-        let goo = Paint::shaded(Rgb(186, 172, 134), Rgb(230, 220, 186), Rgb(124, 112, 84));
-        let top = head + V2(-0.2, -3.2);
+        let goo = Paint::shaded(Rgb(186, 172, 134), Rgb(232, 222, 188), Rgb(120, 108, 80));
+        let top = head + V2(-0.1, -1.55);
         let blob =
-            Shape::Ellipse(top, 2.6, 1.0).blend(Shape::Circle(top + V2(0.8, -0.3), 0.9), 0.5);
+            Shape::Ellipse(top, 1.7, 0.6).blend(Shape::Circle(top + V2(0.5, -0.25), 0.55), 0.35);
         p.draw(&blob, goo);
-        for (x, len) in [(-1.6, 2.2), (0.4, 3.0), (1.7, 1.5)] {
-            let a = top + V2(x, 0.4);
+        for (x, len) in [(-1.1, 1.6), (0.25, 2.1), (1.1, 1.1)] {
+            let a = top + V2(x, 0.3);
             p.draw(
-                &Shape::Capsule(a, a + V2(0.1, len), 0.4, 0.3),
+                &Shape::Capsule(a, a + V2(0.05, len), 0.22, 0.15),
                 goo.no_outline(),
             );
         }
-        p.draw(&Shape::Ellipse(waist + fwd * 0.4, 1.0, 0.6), goo);
+        p.draw(&Shape::Ellipse(shoulder + fwd * 0.3, 0.6, 0.35), goo);
         p.draw(
-            &Shape::Circle(top + V2(-0.9, -0.2), 0.3),
-            Paint::Flat(CREAM_LIGHT, 0.8),
+            &Shape::Circle(top + V2(-0.55, -0.12), 0.16),
+            Paint::Flat(CREAM_LIGHT, 0.85),
         );
     }
     p.finish()
 }
 
-fn eye(p: &mut Painter, c: V2, s: f32) {
-    p.draw(&Shape::Ellipse(c, 0.5 * s, 0.82 * s), Paint::Flat(EYE, 1.0));
-    p.draw(
-        &Shape::Ellipse(c + V2(0.0, 0.3 * s), 0.36 * s, 0.4 * s),
-        Paint::Flat(IRIS, 1.0),
-    );
-    p.draw(
-        &Shape::Circle(c + V2(0.12 * s, -0.35 * s), 0.2 * s),
-        Paint::Flat(WHITE, 1.0),
-    );
-    // Lashes flick out toward the back of the head.
-    p.draw(
-        &Shape::Capsule(
-            c + V2(0.55 * s, -0.75 * s),
-            c + V2(-0.7 * s, -0.7 * s),
-            0.16,
-            0.12,
-        ),
-        Paint::Flat(EYE, 1.0),
-    );
-    p.draw(
-        &Shape::Capsule(
-            c + V2(-0.55 * s, -0.7 * s),
-            c + V2(-0.95 * s, -0.4 * s),
-            0.12,
-            0.06,
-        ),
-        Paint::Flat(EYE, 1.0),
-    );
+/// Control points for a twin tail tied at `root`; `side` picks far (-1) or near (1).
+fn twin_tail(root: V2, r: &Rig, side: f32) -> [V2; 6] {
+    // The far tail flies higher and flatter so the two never stack up.
+    let (path, lift) = if side < 0.0 {
+        (
+            [
+                (0.0, 0.0),
+                (-1.3, 0.4),
+                (-2.8, 1.4),
+                (-4.0, 2.8),
+                (-4.6, 4.2),
+                (-4.7, 5.2),
+            ],
+            r.tail_lift * 0.6 + 0.2,
+        )
+    } else {
+        (
+            [
+                (0.0, 0.0),
+                (-1.0, 1.0),
+                (-2.0, 2.9),
+                (-2.7, 4.9),
+                (-2.9, 6.7),
+                (-2.6, 7.9),
+            ],
+            r.tail_lift,
+        )
+    };
+    let sway = r.tail_sway * (0.35 + side * 0.08);
+    let mut pts = [root; 6];
+    for (i, (x, y)) in path.into_iter().enumerate() {
+        let k = i as f32 / 5.0;
+        pts[i] = root
+            + V2(
+                x - lift * 3.0 * k,
+                y - lift * 4.6 * k * k.sqrt() + sway * 1.8 * k * k,
+            );
+    }
+    pts
 }
 
-/// A short puffed sleeve with a terracotta cuff, pointing along the arm.
-fn sleeve(p: &mut Painter, shoulder: V2, arm_angle: f32) {
-    let dir = V2::down_at(arm_angle);
-    let across = V2(dir.1, -dir.0);
-    p.draw(
-        &Shape::Capsule(shoulder - dir * 0.15, shoulder + dir * 0.45, 0.72, 0.62),
-        cream(),
+fn draw_tail(p: &mut Painter, pts: &[V2; 6], paint: Paint) {
+    let radii = [0.36, 0.52, 0.5, 0.42, 0.3, 0.1];
+    // One blended shape, so the shading flows down the whole tail without seams,
+    // with the tip splitting into separate locks.
+    let mut tail = Shape::Capsule(pts[0], pts[1], radii[0], radii[1]);
+    for i in 1..4 {
+        tail = tail.blend(
+            Shape::Capsule(pts[i], pts[i + 1], radii[i], radii[i + 1]),
+            0.3,
+        );
+    }
+    for (dx, dy, r) in [(-0.3, 0.2, 0.2), (0.25, 0.35, 0.16), (0.0, -0.1, 0.22)] {
+        tail = tail.blend(Shape::Capsule(pts[4], pts[5] + V2(dx, dy), r, 0.04), 0.08);
+    }
+    p.draw(&tail, paint);
+    // Strand highlights running down the tail.
+    for (o, alpha) in [(0.2, 0.75), (-0.15, 0.45)] {
+        for i in 1..4 {
+            let a = pts[i] + V2(o, -0.05);
+            let b = pts[i + 1] + V2(o * 0.8, -0.05);
+            p.draw(
+                &Shape::Capsule(a, b, 0.06, 0.04),
+                Paint::Flat(HAIR_LIGHT, alpha),
+            );
+        }
+    }
+}
+
+fn draw_leg(p: &mut Painter, hip: V2, knee: V2, ankle: V2, tint: f32) {
+    let tights = Paint::shaded(
+        CHARCOAL.scale(tint),
+        CHARCOAL_LIGHT.scale(tint),
+        CHARCOAL_DARK,
     );
-    let cuff = shoulder + dir * 0.9;
+    let shin = ankle - knee;
+    let calf = knee + shin * 0.3 + V2(-shin.1, shin.0) * (-0.06);
+    let leg = Shape::Capsule(hip, knee, 0.56, 0.34)
+        .blend(Shape::Capsule(knee, ankle, 0.33, 0.2), 0.15)
+        .blend(Shape::Circle(calf, 0.34), 0.35);
+    p.draw(&leg, tights);
+    // Ankle boot: shaft up the shin, rounded toe, terracotta sole.
+    let shaft = ankle - shin * (1.2 / SHIN);
+    let toe = ankle + V2(0.95, 0.3);
+    let boot = Shape::Capsule(shaft, ankle, 0.34, 0.3)
+        .blend(Shape::Capsule(ankle + V2(-0.15, 0.1), toe, 0.32, 0.22), 0.2);
     p.draw(
-        &Shape::Capsule(cuff - across * 0.5, cuff + across * 0.5, 0.2, 0.2),
+        &boot,
+        Paint::shaded(CHARCOAL_DARK, CHARCOAL_LIGHT, Rgb(20, 18, 22)),
+    );
+    p.draw(
+        &Shape::Capsule(ankle + V2(-0.35, 0.5), toe + V2(0.15, 0.22), 0.09, 0.09),
         Paint::Flat(TERRA, 1.0),
     );
 }
 
+/// An arm with a puffed sleeve; `far` arms are drawn a shade darker.
+fn arm(p: &mut Painter, shoulder: V2, (a, bend): (f32, f32), far: bool) {
+    let elbow = shoulder + V2::down_at(a) * UPPER_ARM;
+    let wrist = elbow + V2::down_at(a - bend) * FOREARM;
+    let paint = if far {
+        Paint::shaded(SKIN.mix(SKIN_DARK, 0.4), SKIN, SKIN_DARK)
+    } else {
+        skin()
+    };
+    let limb = Shape::Capsule(shoulder, elbow, 0.27, 0.2)
+        .blend(Shape::Capsule(elbow, wrist, 0.2, 0.15), 0.1);
+    p.draw(&limb, paint);
+    p.draw(
+        &Shape::Circle(wrist + V2::down_at(a - bend) * 0.18, 0.2),
+        paint,
+    );
+    let dir = V2::down_at(a);
+    let across = V2(dir.1, -dir.0);
+    let sleeve = if far {
+        Paint::shaded(CREAM_DARK, CREAM, CREAM_DARK.mix(CHARCOAL, 0.2))
+    } else {
+        cream()
+    };
+    p.draw(
+        &Shape::Capsule(shoulder - dir * 0.1, shoulder + dir * 0.55, 0.45, 0.4),
+        sleeve,
+    );
+    let cuff = shoulder + dir * 0.82;
+    p.draw(
+        &Shape::Capsule(cuff - across * 0.36, cuff + across * 0.36, 0.1, 0.1),
+        Paint::Flat(TERRA, 1.0),
+    );
+}
+
+/// A 3/4-view eye: white, amber iris, pupil, catchlight, lash line and brow.
+fn eye(p: &mut Painter, c: V2, s: f32) {
+    p.draw(
+        &Shape::Ellipse(c, 0.3 * s, 0.22),
+        Paint::Flat(Rgb(250, 246, 242), 1.0),
+    );
+    p.draw(
+        &Shape::Ellipse(c + V2(0.06 * s, 0.02), 0.17 * s, 0.22),
+        Paint::Flat(IRIS, 1.0),
+    );
+    p.draw(
+        &Shape::Ellipse(c + V2(0.06 * s, -0.04), 0.1 * s, 0.13),
+        Paint::Flat(EYE, 1.0),
+    );
+    p.draw(
+        &Shape::Circle(c + V2(0.1 * s, -0.1), 0.06),
+        Paint::Flat(WHITE, 1.0),
+    );
+    p.draw(
+        &Shape::Capsule(
+            c + V2(-0.33 * s, -0.15),
+            c + V2(0.32 * s, -0.23),
+            0.065,
+            0.055,
+        ),
+        Paint::Flat(EYE, 1.0),
+    );
+    p.draw(
+        &Shape::Capsule(
+            c + V2(-0.33 * s, -0.15),
+            c + V2(-0.46 * s, -0.25),
+            0.05,
+            0.02,
+        ),
+        Paint::Flat(EYE, 1.0),
+    );
+    p.draw(
+        &Shape::Capsule(
+            c + V2(-0.26 * s, -0.48),
+            c + V2(0.3 * s, -0.52),
+            0.045,
+            0.04,
+        ),
+        Paint::Flat(HAIR_DARK, 0.9),
+    );
+}
+
 fn ribbon(p: &mut Painter, c: V2) {
+    let paint = terra();
     p.draw(
-        &Shape::Poly(vec![c, c + V2(-1.4, -1.2), c + V2(-1.5, 0.6)]),
-        terra(),
+        &Shape::Poly(vec![c, c + V2(-0.7, -0.55), c + V2(-0.75, 0.3)]),
+        paint,
     );
     p.draw(
-        &Shape::Poly(vec![c, c + V2(1.2, -1.2), c + V2(1.35, 0.5)]),
-        terra(),
+        &Shape::Poly(vec![c, c + V2(0.6, -0.6), c + V2(0.7, 0.2)]),
+        paint,
     );
+    p.draw(&Shape::Capsule(c, c + V2(-0.25, 0.95), 0.12, 0.08), paint);
     p.draw(
-        &Shape::Circle(c, 0.38),
+        &Shape::Circle(c, 0.2),
         Paint::shaded(TERRA_DARK, TERRA, TERRA_DARK),
     );
 }
 
-fn limb(
-    p: &mut Painter,
-    root: V2,
-    (a, bend): (f32, f32),
-    upper: f32,
-    lower: f32,
-    paint: Paint,
-    r: f32,
-) {
-    let joint = root + V2::down_at(a) * upper;
-    let end = joint + V2::down_at(a - bend) * lower;
-    p.draw(&Shape::Capsule(root, joint, r, r * 0.9), paint);
-    p.draw(&Shape::Capsule(joint, end, r * 0.9, r), paint);
+/// A small four-point star, a nod to the sparkle in Claude's colors.
+fn star(p: &mut Painter, c: V2, r: f32) {
+    let points: Vec<V2> = (0..8)
+        .map(|i| {
+            let a = i as f32 * PI / 4.0;
+            let len = if i % 2 == 0 { r } else { r * 0.32 };
+            c + V2(a.sin(), -a.cos()) * len
+        })
+        .collect();
+    p.draw(
+        &Shape::Poly(points),
+        Paint::shaded(TERRA, TERRA_LIGHT, TERRA_DARK).no_outline(),
+    );
 }
 
 fn size(sprite: Sprite) -> (usize, usize) {
@@ -808,7 +933,7 @@ mod tests {
 
     #[test]
     fn runner_wears_claude_accents() {
-        let art = ArtSet::new(2);
+        let art = ArtSet::new(5);
         let opaque = || art.run[0].px.iter().filter(|p| p[3] == 255);
         // Shading shifts the exact color, so match terracotta by hue: a warm
         // orange that is redder than skin and more saturated than blush.
@@ -818,7 +943,7 @@ mod tests {
                 r >= 150 && r - g >= 60 && g - b >= 20
             })
             .count();
-        assert!(terracotta > 20, "terracotta: {terracotta} pixels");
+        assert!(terracotta > 40, "terracotta: {terracotta} pixels");
         // Warm off-white (the dress) and neutral dark grey (tights and boots).
         let cream = opaque()
             .filter(|p| p[..3].iter().all(|&c| c >= 165) && p[0] - p[2] <= 45)
@@ -832,8 +957,25 @@ mod tests {
                 (25..=115).contains(&lo) && hi <= 125 && hi - lo <= 15
             })
             .count();
-        assert!(cream > 20, "cream: {cream} pixels");
-        assert!(charcoal > 20, "charcoal: {charcoal} pixels");
+        assert!(cream > 150, "cream: {cream} pixels");
+        assert!(charcoal > 100, "charcoal: {charcoal} pixels");
+    }
+
+    #[test]
+    fn runner_has_adult_proportions() {
+        // Standing height: hair-top of the head down to the boot soles.
+        let head = 2.0 * 1.65;
+        let height = head + 0.5 + TORSO + THIGH + SHIN + FOOT_DROP;
+        assert!(
+            (THIGH + SHIN) / height >= 0.45,
+            "legs are {:.0}% of height",
+            100.0 * (THIGH + SHIN) / height
+        );
+        assert!(
+            head / height <= 0.21,
+            "head is {:.0}% of height",
+            100.0 * head / height
+        );
     }
 
     #[test]
@@ -866,7 +1008,7 @@ mod tests {
         let Some(dir) = std::env::var_os("HEARTH_SLOP_PREVIEW") else {
             return Ok(());
         };
-        for scale in [1, 2, 4] {
+        for scale in [1, 2, 5] {
             let art = ArtSet::new(scale);
             let all = every_bitmap(&art);
             let gap = 2 * scale;

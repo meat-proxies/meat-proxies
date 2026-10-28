@@ -17,6 +17,8 @@ pub enum Graphics {
     Kitty,
     /// iTerm2 inline images (OSC 1337).
     Iterm,
+    /// Sixel images with a dithered 252-color palette: Windows Terminal.
+    Sixel,
 }
 
 impl Graphics {
@@ -29,8 +31,9 @@ impl Graphics {
                 "blocks" => Ok(Self::Blocks),
                 "kitty" => Ok(Self::Kitty),
                 "iterm" => Ok(Self::Iterm),
+                "sixel" => Ok(Self::Sixel),
                 other => Err(format!(
-                    "{OVERRIDE_VAR}={other} is not one of auto, blocks, kitty, iterm."
+                    "{OVERRIDE_VAR}={other} is not one of auto, blocks, kitty, iterm, sixel."
                 )),
             };
         }
@@ -51,13 +54,16 @@ impl Graphics {
             Self::Kitty
         } else if is("TERM_PROGRAM", "iTerm.app") || is("LC_TERMINAL", "iTerm2") {
             Self::Iterm
+        } else if var("WT_SESSION").is_some() {
+            // Windows Terminal, directly or from WSL (which forwards WT_SESSION).
+            Self::Sixel
         } else {
             Self::Blocks
         }
     }
 }
 
-/// Kitty protocol: transmit raw RGB and place it over `cols` x `rows` cells at
+/// Kitty protocol: transmit zlib-compressed RGB and place it over `cols` x `rows` cells at
 /// the top-left. Images alternate between two ids so the new frame is on
 /// screen before the old one is deleted, which avoids flicker.
 pub fn kitty(frame: &Frame, cols: u16, rows: u16, id: u32) -> String {
@@ -65,7 +71,7 @@ pub fn kitty(frame: &Frame, cols: u16, rows: u16, id: u32) -> String {
     for p in frame.pixels() {
         rgb.extend_from_slice(&[p.0, p.1, p.2]);
     }
-    let data = base64(&rgb);
+    let data = base64(&miniz_oxide::deflate::compress_to_vec_zlib(&rgb, 1));
     let mut out = String::with_capacity(data.len() + 256);
     out.push_str("\x1b[1;1H");
     let chunks: Vec<&str> = data
@@ -78,7 +84,7 @@ pub fn kitty(frame: &Frame, cols: u16, rows: u16, id: u32) -> String {
         if i == 0 {
             let _ = write!(
                 out,
-                "\x1b_Ga=T,f=24,s={},v={},c={cols},r={rows},i={id},p=1,q=2,C=1,m={more};{chunk}\x1b\\",
+                "\x1b_Ga=T,f=24,o=z,s={},v={},c={cols},r={rows},i={id},p=1,q=2,C=1,m={more};{chunk}\x1b\\",
                 frame.width, frame.height
             );
         } else {
@@ -106,6 +112,109 @@ pub fn iterm(frame: &Frame, cols: u16, rows: u16) -> String {
     )
 }
 
+/// Levels per channel in the fixed Sixel palette: 6 x 7 x 6 = 252 colors.
+const SIXEL_LEVELS: [usize; 3] = [6, 7, 6];
+
+/// Windows Terminal lays Sixel out on a 10 x 20 pixel virtual cell.
+pub const SIXEL_CELL: (usize, usize) = (10, 20);
+
+/// Sixel image at the top-left, each frame pixel drawn `upscale` times bigger.
+/// Colors are ordered-dithered onto a fixed palette so gradients stay smooth.
+pub fn sixel(frame: &Frame, upscale: usize) -> String {
+    const BAYER: [[f32; 4]; 4] = [
+        [0.0, 8.0, 2.0, 10.0],
+        [12.0, 4.0, 14.0, 6.0],
+        [3.0, 11.0, 1.0, 9.0],
+        [15.0, 7.0, 13.0, 5.0],
+    ];
+    let (w, h) = (frame.width, frame.height);
+    let index: Vec<u8> = frame
+        .pixels()
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let threshold = BAYER[(i / w.max(1)) % 4][i % w.max(1) % 4] / 16.0 - 0.5;
+            let level = |c: u8, n: usize| {
+                let v = f32::from(c) / 255.0 * (n - 1) as f32 + threshold;
+                v.round().clamp(0.0, (n - 1) as f32) as usize
+            };
+            let [lr, lg, lb] = SIXEL_LEVELS;
+            ((level(p.0, lr) * lg + level(p.1, lg)) * lb + level(p.2, lb)) as u8
+        })
+        .collect();
+    let (out_w, out_h) = (w * upscale, h * upscale);
+
+    let mut out = String::with_capacity(out_w * out_h / 2);
+    let _ = write!(out, "\x1b[1;1H\x1bP0;1;0q\"1;1;{out_w};{out_h}");
+    let [lr, lg, lb] = SIXEL_LEVELS;
+    for i in 0..lr * lg * lb {
+        let pct = |v: usize, n: usize| v * 100 / (n - 1);
+        let _ = write!(
+            out,
+            "#{i};2;{};{};{}",
+            pct(i / (lg * lb), lr),
+            pct(i / lb % lg, lg),
+            pct(i % lb, lb)
+        );
+    }
+    // Per band, collect each color's six-row bit pattern at source width in
+    // one pass, then emit only the colors that appear, run-length encoded.
+    let colors = lr * lg * lb;
+    let mut bits = vec![0u8; colors * w];
+    let mut seen = vec![false; colors];
+    let mut used = Vec::with_capacity(colors);
+    for band in (0..out_h).step_by(6) {
+        let rows = (out_h - band).min(6);
+        for dy in 0..rows {
+            let row = &index[(band + dy) / upscale * w..][..w];
+            for (x, &c) in row.iter().enumerate() {
+                let c = usize::from(c);
+                if !seen[c] {
+                    seen[c] = true;
+                    used.push(c);
+                }
+                bits[c * w + x] |= 1 << dy;
+            }
+        }
+        used.sort_unstable();
+        for (n, &color) in used.iter().enumerate() {
+            if n > 0 {
+                out.push('$');
+            }
+            let _ = write!(out, "#{color}");
+            let line = &mut bits[color * w..(color + 1) * w];
+            let mut run: (u8, usize) = (line[0], 0);
+            for &b in line.iter() {
+                if b == run.0 {
+                    run.1 += upscale;
+                } else {
+                    push_run(&mut out, run);
+                    run = (b, upscale);
+                }
+            }
+            // Trailing empty columns need not be sent.
+            if run.0 != 0 {
+                push_run(&mut out, run);
+            }
+            line.fill(0);
+            seen[color] = false;
+        }
+        used.clear();
+        out.push('-');
+    }
+    out.push_str("\x1b\\");
+    out
+}
+
+fn push_run(out: &mut String, (bits, count): (u8, usize)) {
+    let c = char::from(63 + bits);
+    if count > 3 {
+        let _ = write!(out, "!{count}{c}");
+    } else {
+        out.extend(std::iter::repeat_n(c, count));
+    }
+}
+
 pub fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
@@ -125,8 +234,7 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
-/// Encodes the frame as an RGB PNG. Uses uncompressed deflate blocks: larger
-/// than a real compressor, but simple, fast, and dependency-free.
+/// Encodes the frame as an RGB PNG.
 pub fn png(frame: &Frame) -> Vec<u8> {
     let mut raw = Vec::with_capacity((frame.width * 3 + 1) * frame.height);
     for row in frame.pixels().chunks(frame.width.max(1)) {
@@ -135,19 +243,7 @@ pub fn png(frame: &Frame) -> Vec<u8> {
             raw.extend_from_slice(&[p.0, p.1, p.2]);
         }
     }
-    let mut zlib = vec![0x78, 0x01];
-    let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
-    for (i, block) in blocks.iter().enumerate() {
-        zlib.push(u8::from(i + 1 == blocks.len()));
-        let len = block.len() as u16;
-        zlib.extend_from_slice(&len.to_le_bytes());
-        zlib.extend_from_slice(&(!len).to_le_bytes());
-        zlib.extend_from_slice(block);
-    }
-    if blocks.is_empty() {
-        zlib.extend_from_slice(&[1, 0, 0, 0xFF, 0xFF]);
-    }
-    zlib.extend_from_slice(&adler32(&raw).to_be_bytes());
+    let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 1);
 
     let mut ihdr = Vec::with_capacity(13);
     ihdr.extend_from_slice(&(frame.width as u32).to_be_bytes());
@@ -168,19 +264,6 @@ pub fn png(frame: &Frame) -> Vec<u8> {
         out.extend_from_slice(&crc.to_be_bytes());
     }
     out
-}
-
-fn adler32(data: &[u8]) -> u32 {
-    let (mut a, mut b) = (1u32, 0u32);
-    for chunk in data.chunks(5552) {
-        for &byte in chunk {
-            a += u32::from(byte);
-            b += a;
-        }
-        a %= 65_521;
-        b %= 65_521;
-    }
-    b << 16 | a
 }
 
 fn crc32(data: &[u8]) -> u32 {
@@ -220,6 +303,7 @@ mod tests {
             (&[("TERM", "xterm-ghostty")], Graphics::Kitty),
             (&[("TERM_PROGRAM", "iTerm.app")], Graphics::Iterm),
             (&[("TERM", "xterm-256color")], Graphics::Blocks),
+            (&[("WT_SESSION", "8c2c0bb4-...")], Graphics::Sixel),
             (&[], Graphics::Blocks),
             // tmux hides the outer terminal, so do not risk image escapes.
             (
@@ -246,7 +330,11 @@ mod tests {
             Graphics::detect(env(&[(OVERRIDE_VAR, "auto"), ("LC_TERMINAL", "iTerm2")])),
             Ok(Graphics::Iterm)
         );
-        assert!(Graphics::detect(env(&[(OVERRIDE_VAR, "sixel")])).is_err());
+        assert_eq!(
+            Graphics::detect(env(&[(OVERRIDE_VAR, "sixel")])),
+            Ok(Graphics::Sixel)
+        );
+        assert!(Graphics::detect(env(&[(OVERRIDE_VAR, "sixels")])).is_err());
     }
 
     #[test]
@@ -265,7 +353,6 @@ mod tests {
     #[test]
     fn checksums_match_known_values() {
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
-        assert_eq!(adler32(b"Wikipedia"), 0x11E6_0398);
     }
 
     #[test]
@@ -282,16 +369,19 @@ mod tests {
             u32::from_be_bytes([png[29], png[30], png[31], png[32]])
         );
         assert!(png.ends_with(&[0, 0, 0, 0, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82]));
-        // Raw scanlines are stored verbatim: filter byte then RGB.
-        let raw = [0, 10, 20, 30, 10, 20, 30, 10, 20, 30];
-        assert!(png.windows(raw.len()).any(|w| w == raw));
+        // The image data inflates back to the scanlines: filter byte then RGB.
+        let len = u32::from_be_bytes([png[33], png[34], png[35], png[36]]) as usize;
+        assert_eq!(&png[37..41], b"IDAT");
+        let raw =
+            miniz_oxide::inflate::decompress_to_vec_zlib(&png[41..41 + len]).expect("valid zlib");
+        assert_eq!(raw, [0, 10, 20, 30, 10, 20, 30, 10, 20, 30].repeat(2));
     }
 
     #[test]
     fn kitty_frames_are_chunked_and_swap_ids() {
         let frame = Frame::new(64, 48);
         let out = kitty(&frame, 32, 12, 1);
-        assert!(out.starts_with("\x1b[1;1H\x1b_Ga=T,f=24,s=64,v=48,c=32,r=12,i=1,"));
+        assert!(out.starts_with("\x1b[1;1H\x1b_Ga=T,f=24,o=z,s=64,v=48,c=32,r=12,i=1,"));
         for chunk in out.split("\x1b_G").skip(1) {
             let payload = chunk
                 .split_once(';')
@@ -313,5 +403,71 @@ mod tests {
         assert!(out.contains("1337;File=inline=1;"));
         assert!(out.contains("width=2;height=1;preserveAspectRatio=0:iVBORw0KGgo"));
         assert!(out.ends_with('\x07'));
+    }
+
+    #[test]
+    fn kitty_payload_is_zlib_of_the_raw_pixels() {
+        let mut frame = Frame::new(8, 4);
+        frame.fill(Rgb(1, 2, 3));
+        let out = kitty(&frame, 4, 2, 1);
+        let payload = out
+            .split_once("m=0;")
+            .map(|(_, p)| p)
+            .and_then(|p| p.split_once('\x1b'))
+            .map(|(p, _)| p);
+        let bytes = base64_decode(payload.expect("payload"));
+        let raw = miniz_oxide::inflate::decompress_to_vec_zlib(&bytes).expect("valid zlib");
+        assert_eq!(raw, [1, 2, 3].repeat(32));
+    }
+
+    #[test]
+    fn sixel_frames_cover_the_upscaled_image() {
+        let mut frame = Frame::new(4, 3);
+        frame.fill(Rgb(255, 255, 255));
+        let out = sixel(&frame, 2);
+        assert!(out.starts_with("\x1b[1;1H\x1bP0;1;0q\"1;1;8;6#0;2;0;0;0"));
+        assert!(out.ends_with("-\x1b\\"));
+        // 6 rows fit one band; pure white is the last palette entry, every column set.
+        let body = out
+            .rsplit_once("#251;2;100;100;100")
+            .map(|(_, b)| b)
+            .expect("palette");
+        assert_eq!(body, "#251!8~-\x1b\\");
+    }
+
+    #[test]
+    fn sixel_dithering_mixes_neighbouring_palette_colors() {
+        let mut frame = Frame::new(16, 6);
+        frame.fill(Rgb(128, 128, 128));
+        let out = sixel(&frame, 1);
+        let body = out
+            .rsplit_once("#251;2;100;100;100")
+            .map(|(_, b)| b)
+            .expect("palette");
+        assert!(
+            body.matches('#').count() >= 2,
+            "mid grey should dither between levels: {body}"
+        );
+    }
+
+    fn base64_decode(text: &str) -> Vec<u8> {
+        let value = |c: u8| match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            _ => 63,
+        };
+        let digits: Vec<u8> = text.bytes().filter(|&c| c != b'=').map(value).collect();
+        digits
+            .chunks(4)
+            .flat_map(|c| {
+                let n = c
+                    .iter()
+                    .enumerate()
+                    .fold(0u32, |n, (i, &d)| n | u32::from(d) << (18 - 6 * i));
+                (0..c.len() - 1).map(move |i| (n >> (16 - 8 * i)) as u8)
+            })
+            .collect()
     }
 }

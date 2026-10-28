@@ -25,7 +25,7 @@ impl Rgb {
         )
     }
 
-    fn scale(self, k: f32) -> Rgb {
+    pub fn scale(self, k: f32) -> Rgb {
         let f = |c: u8| (f32::from(c) * k).round().clamp(0.0, 255.0) as u8;
         Rgb(f(self.0), f(self.1), f(self.2))
     }
@@ -322,6 +322,9 @@ fn clouds(frame: &mut Frame, palette: &Palette, offset: f32, s: usize) {
 
 /// Server-rack silhouettes scrolling at `offset` units, up to `max_height` units tall.
 fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, salt: u32, s: usize) {
+    if s >= 3 {
+        return detailed_skyline(frame, offset, color, max_height, salt, s);
+    }
     let s = s as i32;
     let ground = ground_line(frame.height, s as usize);
     let lit = color.mix(Rgb(255, 210, 130), 0.55);
@@ -350,7 +353,6 @@ fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, salt: u3
             };
             frame.set(x, y, color);
         }
-        // Rooftop antennas on some racks.
         if s > 1 && bits.is_multiple_of(5) && col == 4 && sub == 0 {
             for y in (ground - tall - 2 * s).max(0)..(ground - tall) {
                 frame.set(x, y, color);
@@ -360,8 +362,87 @@ fn skyline(frame: &mut Frame, offset: f32, color: Rgb, max_height: u32, salt: u3
     }
 }
 
+/// The same skyline with sub-unit detail: shaded facades, lit edges, roof
+/// ledges, and framed windows with glass reflections or warm lamplight.
+fn detailed_skyline(
+    frame: &mut Frame,
+    offset: f32,
+    color: Rgb,
+    max_height: u32,
+    salt: u32,
+    s: usize,
+) {
+    let sf = s as f32;
+    let ground = ground_line(frame.height, s);
+    let offset_px = offset * sf;
+    let light = color.mix(Rgb(255, 226, 190), 0.3);
+    let shadow = color.scale(0.72);
+    for x in 0..frame.width as i32 {
+        let u = (x as f32 + 0.5 + offset_px) / sf;
+        let block = u.div_euclid(9.0) as i32 as u32;
+        let local = u.rem_euclid(9.0);
+        if local >= 8.0 {
+            continue;
+        }
+        let tall = (4 + hash(block.wrapping_add(salt)) % max_height) as f32;
+        let bits = hash(block ^ salt.rotate_left(7));
+        let top = ground - (tall * sf) as i32;
+        for y in top.max(0)..ground {
+            let v = (ground - y) as f32 / sf; // units above the ground
+            // Sky light falls on the top of the facade; it darkens toward the street.
+            let mut c = color.scale(0.82 + 0.3 * (v / tall));
+            if local < 0.4 {
+                c = light;
+            } else if local > 7.65 {
+                c = shadow;
+            }
+            if tall - v < 0.5 {
+                c = light.mix(Rgb(255, 255, 255), 0.15);
+            } else if tall - v < 0.75 {
+                c = shadow;
+            }
+            let (wx, wy) = (local.rem_euclid(3.0), v.rem_euclid(3.0));
+            let (row, column) = ((v / 3.0) as u32, (local / 3.0) as u32);
+            if (0.85..2.15).contains(&wx)
+                && (0.85..2.15).contains(&wy)
+                && v + 1.5 < tall
+                && local < 7.6
+            {
+                let lit = (bits.rotate_left(row * 3 + column) & 3) == 0;
+                let inner = (0.95..2.05).contains(&wx) && (0.95..2.05).contains(&wy);
+                c = if !inner {
+                    shadow.scale(0.8)
+                } else if lit {
+                    // Warm lamplight, brightest at the top of the pane.
+                    Rgb(255, 214, 140).mix(Rgb(240, 150, 80), (2.05 - wy) / 1.1)
+                } else {
+                    // Dark glass with a diagonal sky reflection.
+                    let streak = ((wx - wy + 3.0).rem_euclid(1.1) < 0.22) as u8 as f32;
+                    color
+                        .scale(0.6)
+                        .mix(Rgb(150, 170, 220), 0.25 + 0.25 * streak)
+                };
+            }
+            frame.set(x, y, c);
+        }
+        // Thin rooftop antennas with a warning light.
+        if bits.is_multiple_of(5) && (4.0..4.0 + 1.0 / sf).contains(&local) {
+            let mast = (2.4 * sf) as i32;
+            for y in (top - mast).max(0)..top {
+                frame.set(x, y, shadow);
+            }
+            for dy in 0..2 {
+                frame.set(x, top - mast - dy, Rgb(255, 110, 90));
+            }
+        }
+    }
+}
+
 /// Grass over textured earth, with pebbles, scrolling with the run.
 fn ground(frame: &mut Frame, distance: f32, s: usize) {
+    if s >= 3 {
+        return detailed_ground(frame, distance, s);
+    }
     let si = s as i32;
     let line = ground_line(frame.height, s);
     let offset = (distance * s as f32) as i32;
@@ -370,7 +451,6 @@ fn ground(frame: &mut Frame, distance: f32, s: usize) {
     for x in 0..frame.width as i32 {
         let world = x + offset;
         let h = hash(world as u32);
-        // Blades poke above the line at higher scales.
         let blades = if s > 1 {
             (h % (si as u32 + 1)) as i32
         } else {
@@ -406,6 +486,82 @@ fn ground(frame: &mut Frame, distance: f32, s: usize) {
             frame.set(x, y, color);
         }
     }
+}
+
+/// Ground with sub-unit detail: individual grass blades, layered soil, and
+/// round shaded pebbles.
+fn detailed_ground(frame: &mut Frame, distance: f32, s: usize) {
+    let sf = s as f32;
+    let line = ground_line(frame.height, s);
+    let offset = (distance * sf) as i32;
+    for x in 0..frame.width as i32 {
+        let world = x + offset;
+        let h = hash(world as u32);
+        // Blades of varying height and shade rise above the turf.
+        let blade = (h % (s as u32 * 3 / 2 + 1)) as i32;
+        let tint = (h >> 8 & 7) as f32 / 7.0;
+        for y in (line - blade).max(0)..line {
+            let t = (line - y) as f32 / (blade.max(1) as f32);
+            frame.set(
+                x,
+                y,
+                Rgb(104, 160, 76).mix(Rgb(196, 226, 128), t * (0.6 + 0.4 * tint)),
+            );
+        }
+        let turf = s as i32;
+        for y in line..line + turf {
+            let t = (y - line) as f32 / turf as f32;
+            frame.set(x, y, Rgb(150, 200, 100).mix(Rgb(86, 132, 64), t));
+        }
+        for y in line + turf..frame.height as i32 {
+            let v = (y - line) as f32 / sf;
+            let depth = v / GROUND_DEPTH as f32;
+            let noise = (hash(world as u32 ^ (y as u32) << 16) & 15) as f32 / 15.0;
+            let strata = (v * 1.7 + (world as f32 / sf * 0.15).sin() * 0.4).sin() * 0.04;
+            let mut color = Rgb(156, 102, 72)
+                .mix(Rgb(84, 50, 42), depth)
+                .scale(0.93 + noise * 0.1 + strata);
+            if let Some(shade) = pebble(world as f32 / sf, v) {
+                color = shade;
+            }
+            frame.set(x, y, color);
+        }
+    }
+}
+
+/// The color of a pebble at this ground position (units), if one is there.
+fn pebble(u: f32, v: f32) -> Option<Rgb> {
+    let (cx, cy) = (u.div_euclid(3.0), v.div_euclid(2.0));
+    let h = hash((cx as i32 as u32).wrapping_mul(0x9E37) ^ (cy as i32 as u32).wrapping_mul(0x51ED));
+    if !h.is_multiple_of(3) || cy < 1.0 {
+        return None;
+    }
+    let center = (
+        cx * 3.0 + 0.8 + (h >> 4 & 15) as f32 / 15.0 * 1.4,
+        cy * 2.0 + 0.6 + (h >> 8 & 15) as f32 / 15.0 * 0.8,
+    );
+    let (rx, ry) = (
+        0.32 + (h >> 12 & 7) as f32 / 7.0 * 0.3,
+        0.22 + (h >> 15 & 7) as f32 / 7.0 * 0.16,
+    );
+    let (dx, dy) = ((u - center.0) / rx, (v - center.1) / ry);
+    let d = (dx * dx + dy * dy).sqrt();
+    if d > 1.0 {
+        return None;
+    }
+    if d > 0.82 {
+        return Some(Rgb(98, 66, 52));
+    }
+    // Lit from the upper right.
+    let light = (dx * 0.5 - dy * 0.85).clamp(-1.0, 1.0);
+    Some(Rgb(186, 150, 118).mix(
+        if light > 0.0 {
+            Rgb(236, 210, 176)
+        } else {
+            Rgb(130, 96, 76)
+        },
+        light.abs() * 0.8,
+    ))
 }
 
 #[cfg(test)]
@@ -498,6 +654,20 @@ mod tests {
             detailed > small * 3 && detailed > 1000,
             "1x {small} colors, 2x {detailed}"
         );
+    }
+
+    #[test]
+    fn full_detail_background_adds_texture() {
+        let count = |s: usize| {
+            let mut frame = Frame::new(W * s, H * s);
+            frame.fill(Rgb(90, 150, 220));
+            skyline(&mut frame, 37.0, Rgb(58, 52, 92), 22, 41, s);
+            ground(&mut frame, 500.0, s);
+            frame.pixels().iter().collect::<HashSet<_>>().len()
+        };
+        let (plain, detailed) = (count(2), count(5));
+        assert!(detailed > plain * 3, "2x {plain} colors, 5x {detailed}");
+        assert!((0..400).any(|i| pebble(i as f32 * 0.37, 3.0 + (i % 7) as f32).is_some()));
     }
 
     #[test]
